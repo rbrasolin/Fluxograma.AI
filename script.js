@@ -9,6 +9,13 @@ let autocompleteState = {
 
 let ignorarBlurAutocomplete = false;
 
+/* ===== Estado do editor interativo (Onda 2) ===== */
+let overridesConexoes = {};   // chave "origemId__destinoId" -> { startSide, endSide }
+let ordemRaias = [];          // ordem manual das áreas (raias)
+let modoEdicaoAtivo = false;  // modo "Ajustar fluxo" ligado/desligado
+let conexaoSelecionada = null;// { origemId, destinoId } em edição
+let ultimasAreasOrdenadas = [];// snapshot das raias do último render (para o painel)
+
 const STORAGE_KEY = "gerador_fluxograma_estado_v1";
 let saveStateTimeout = null;
 
@@ -45,7 +52,9 @@ function obterEstadoAtual() {
         }))
       : [],
     uidCounter: Number(uidCounter) || 1,
-    ultimoNomeArquivo: ultimoNomeArquivo || "fluxograma_processo"
+    ultimoNomeArquivo: ultimoNomeArquivo || "fluxograma_processo",
+    overridesConexoes: overridesConexoes && typeof overridesConexoes === "object" ? overridesConexoes : {},
+    ordemRaias: Array.isArray(ordemRaias) ? [...ordemRaias] : []
   };
 }
 
@@ -139,6 +148,12 @@ function restaurarEstadoLocal() {
     );
 
     ultimoNomeArquivo = estado.ultimoNomeArquivo || "fluxograma_processo";
+
+    overridesConexoes =
+      estado.overridesConexoes && typeof estado.overridesConexoes === "object"
+        ? estado.overridesConexoes
+        : {};
+    ordemRaias = Array.isArray(estado.ordemRaias) ? estado.ordemRaias : [];
 
     if (!fluxoData.length) {
       fluxoData = [];
@@ -3513,6 +3528,23 @@ function escolherRota(origem, destino, contexto = {}) {
   const rotasExistentes = contexto.rotasExistentes || [];
   const excludeIds = [origem.id, destino.id, "__INICIO__", "__FIM__"];
 
+  // === Override manual do editor: força os lados escolhidos pelo usuário ===
+  const override = obterOverrideConexao(origem.id, destino.id);
+  if (override && override.startSide && override.endSide) {
+    const start = getAnchorPoint(origem, override.startSide);
+    const end = getAnchorPoint(destino, override.endSide);
+    const rota = encontrarRotaSegura(
+      start, end, posicoes, excludeIds,
+      override.endSide, override.startSide, destino
+    );
+    return montarRotaOrtogonal(
+      rota.points,
+      { x: (start.x + end.x) / 2, y: start.y - 10 },
+      override.startSide,
+      override.endSide
+    );
+  }
+
   if (origem.id === "__INICIO__") {
     const start = getAnchorPoint(origem, "right");
     const end = getAnchorPoint(destino, "left");
@@ -3847,6 +3879,9 @@ function desenharConexao(
   path.setAttribute("marker-end", "url(#arrow)");
   path.setAttribute("stroke-linejoin", "round");
   path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("data-origem", origem.id);
+  path.setAttribute("data-destino", destino.id);
+  path.setAttribute("class", "conexao-fluxo");
   svg.appendChild(path);
 
   routeRegistry.push({
@@ -4325,6 +4360,17 @@ function gerarFluxo() {
     }
   });
 
+  // Aplica a ordem manual das raias (editor). Áreas sem ordem definida
+  // vão para o fim, preservando a ordem natural de aparição.
+  if (Array.isArray(ordemRaias) && ordemRaias.length) {
+    areasOrdenadas.sort((a, b) => {
+      const ia = ordemRaias.indexOf(a);
+      const ib = ordemRaias.indexOf(b);
+      return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+    });
+  }
+  ultimasAreasOrdenadas = [...areasOrdenadas];
+
   const linhasPorArea = {};
   areasOrdenadas.forEach((nome) => {
     linhasPorArea[nome] = 1;
@@ -4704,6 +4750,12 @@ function gerarFluxo() {
 
   document.getElementById("metricas").innerHTML =
     renderizarAnaliseExecutiva(dadosAnalise);
+
+  // Se o modo de edição estiver ligado, reativa os controles sobre o novo SVG.
+  if (modoEdicaoAtivo) {
+    aplicarCamadaEdicao();
+    renderPainelRaias();
+  }
 }
 
 function quebrarNomeRaiaExcel(texto, alturaDisponivel) {
@@ -4881,6 +4933,15 @@ function gerarFluxoExcel() {
       areasOrdenadas.push(nome);
     }
   });
+
+  // Respeita a ordem manual das raias definida no editor (mesma regra da tela).
+  if (Array.isArray(ordemRaias) && ordemRaias.length) {
+    areasOrdenadas.sort((a, b) => {
+      const ia = ordemRaias.indexOf(a);
+      const ib = ordemRaias.indexOf(b);
+      return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+    });
+  }
 
   let cursorY = 0;
   let rowOffsetGlobal = 0;
@@ -5138,7 +5199,18 @@ function obterSVGPronto() {
     mostrarToast("Gere o fluxo primeiro.", "alerta");
     return null;
   }
-  return svgOriginal.cloneNode(true);
+  const clone = svgOriginal.cloneNode(true);
+
+  // Remove toda a camada de edição e marcações, garantindo export limpo.
+  clone.querySelectorAll("g.editor-ui").forEach(el => el.remove());
+  clone.querySelectorAll("[data-origem]").forEach(el => {
+    el.removeAttribute("data-origem");
+    el.removeAttribute("data-destino");
+    if (el.getAttribute("class") === "conexao-fluxo") el.removeAttribute("class");
+    el.classList && el.classList.remove("conexao-selecionada");
+  });
+
+  return clone;
 }
 
 function coletarDadosAnaliseEstruturados() {
@@ -5991,3 +6063,309 @@ function importarProjetoJSON(event) {
   reader.onerror = () => mostrarToast("Falha ao ler o arquivo.", "erro");
   reader.readAsText(file);
 }
+
+/* =====================================================================
+   ONDA 2 — Editor interativo de conexões e raias
+   - Ajuste de lados (saída/entrada) por conexão, via popover
+   - Reordenação de raias via painel com setas ↑/↓
+   - Tudo persiste no projeto (.json) e não vaza no SVG exportado
+===================================================================== */
+
+const LADOS = [
+  { lado: "top", icone: "▲", nome: "Cima" },
+  { lado: "right", icone: "▶", nome: "Direita" },
+  { lado: "bottom", icone: "▼", nome: "Baixo" },
+  { lado: "left", icone: "◀", nome: "Esquerda" }
+];
+
+function chaveOverride(origemId, destinoId) {
+  return `${origemId}__${destinoId}`;
+}
+
+function obterOverrideConexao(origemId, destinoId) {
+  if (!overridesConexoes) return null;
+  return overridesConexoes[chaveOverride(origemId, destinoId)] || null;
+}
+
+/* ---------- Toggle do modo de edição ---------- */
+function alternarModoEdicao() {
+  if (!document.querySelector("#diagram svg")) {
+    gerarFluxo();
+    if (!document.querySelector("#diagram svg")) {
+      mostrarToast("Gere o fluxo primeiro.", "alerta");
+      return;
+    }
+  }
+
+  modoEdicaoAtivo = !modoEdicaoAtivo;
+  const btn = document.getElementById("btnAjustarFluxo");
+
+  if (modoEdicaoAtivo) {
+    if (btn) { btn.classList.add("ativo"); btn.textContent = "Concluir ajustes"; }
+    aplicarCamadaEdicao();
+    renderPainelRaias();
+    mostrarToast("Modo de ajuste ativo: clique numa seta para corrigir entrada/saída.", "info", 4500);
+  } else {
+    if (btn) { btn.classList.remove("ativo"); btn.textContent = "Ajustar fluxo"; }
+    removerCamadaEdicao();
+    fecharPopoverConexao();
+    mostrarToast("Ajustes concluídos.", "ok");
+  }
+}
+
+/* ---------- Camada clicável sobre as setas ---------- */
+function aplicarCamadaEdicao() {
+  const svg = document.querySelector("#diagram svg");
+  if (!svg) return;
+
+  // remove camada anterior, se houver
+  const antiga = svg.querySelector("g.editor-ui");
+  if (antiga) antiga.remove();
+
+  const g = criarElementoSVG("g");
+  g.setAttribute("class", "editor-ui");
+
+  svg.querySelectorAll("path.conexao-fluxo").forEach((p) => {
+    const origemId = p.getAttribute("data-origem");
+    const destinoId = p.getAttribute("data-destino");
+
+    // destaque da conexão selecionada
+    if (
+      conexaoSelecionada &&
+      conexaoSelecionada.origemId === origemId &&
+      conexaoSelecionada.destinoId === destinoId
+    ) {
+      p.setAttribute("stroke", "#1d6fe0");
+      p.setAttribute("stroke-width", CONFIG.lineWidth + 1.4);
+    } else {
+      p.setAttribute("stroke", "#111111");
+      p.setAttribute("stroke-width", CONFIG.lineWidth);
+    }
+
+    // área de clique mais larga (transparente) por cima da seta
+    const hit = criarElementoSVG("path");
+    hit.setAttribute("d", p.getAttribute("d"));
+    hit.setAttribute("fill", "none");
+    hit.setAttribute("stroke", "rgba(0,0,0,0.001)");
+    hit.setAttribute("stroke-width", "16");
+    hit.setAttribute("stroke-linecap", "round");
+    hit.setAttribute("style", "cursor:pointer");
+    hit.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      abrirPopoverConexao(origemId, destinoId, ev.clientX, ev.clientY);
+    });
+    g.appendChild(hit);
+  });
+
+  svg.appendChild(g);
+}
+
+function removerCamadaEdicao() {
+  const svg = document.querySelector("#diagram svg");
+  if (svg) {
+    const g = svg.querySelector("g.editor-ui");
+    if (g) g.remove();
+    // restaura aparência padrão das conexões
+    svg.querySelectorAll("path.conexao-fluxo").forEach((p) => {
+      p.setAttribute("stroke", "#111111");
+      p.setAttribute("stroke-width", CONFIG.lineWidth);
+    });
+  }
+  const painel = document.getElementById("painelRaias");
+  if (painel) painel.remove();
+  conexaoSelecionada = null;
+}
+
+/* ---------- Popover de ajuste de uma conexão ---------- */
+let popoverPos = { x: 0, y: 0 };
+
+function abrirPopoverConexao(origemId, destinoId, x, y) {
+  conexaoSelecionada = { origemId, destinoId };
+  popoverPos = { x, y };
+  renderPopoverConexao();
+  aplicarCamadaEdicao(); // reforça o destaque da selecionada
+}
+
+function rotuloNo(id) {
+  if (id === "__INICIO__") return "Início";
+  if (id === "__FIM__") return "Fim";
+  return id;
+}
+
+function renderPopoverConexao() {
+  if (!conexaoSelecionada) return;
+
+  let pop = document.getElementById("popoverConexao");
+  if (!pop) {
+    pop = document.createElement("div");
+    pop.id = "popoverConexao";
+    document.body.appendChild(pop);
+  }
+
+  const { origemId, destinoId } = conexaoSelecionada;
+  const override = obterOverrideConexao(origemId, destinoId) || {};
+
+  const botoesLado = (qual, ativo) =>
+    LADOS.map(l => {
+      const sel = ativo === l.lado ? " sel" : "";
+      return `<button type="button" class="lado-btn${sel}" title="${l.nome}"
+        onclick="definirLadoConexao('${qual}','${l.lado}')">${l.icone}</button>`;
+    }).join("");
+
+  pop.innerHTML = `
+    <div class="pop-header">
+      <span>Conexão <b>${rotuloNo(origemId)} → ${rotuloNo(destinoId)}</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharPopoverConexao()">✕</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Saída de ${rotuloNo(origemId)}</div>
+      <div class="pop-botoes">${botoesLado("start", override.startSide)}</div>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Entrada em ${rotuloNo(destinoId)}</div>
+      <div class="pop-botoes">${botoesLado("end", override.endSide)}</div>
+    </div>
+    <div class="pop-rodape">
+      <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Voltar ao automático</button>
+    </div>
+  `;
+
+  // posiciona dentro da viewport
+  pop.style.display = "block";
+  const margem = 10;
+  const larg = pop.offsetWidth || 240;
+  const alt = pop.offsetHeight || 200;
+  let px = popoverPos.x + 12;
+  let py = popoverPos.y + 12;
+  if (px + larg + margem > window.innerWidth) px = window.innerWidth - larg - margem;
+  if (py + alt + margem > window.innerHeight) py = window.innerHeight - alt - margem;
+  pop.style.left = Math.max(margem, px) + "px";
+  pop.style.top = Math.max(margem, py) + "px";
+}
+
+function fecharPopoverConexao() {
+  const pop = document.getElementById("popoverConexao");
+  if (pop) pop.style.display = "none";
+  conexaoSelecionada = null;
+  if (modoEdicaoAtivo) aplicarCamadaEdicao();
+}
+
+function definirLadoConexao(qual, lado) {
+  if (!conexaoSelecionada) return;
+  const { origemId, destinoId } = conexaoSelecionada;
+  const chave = chaveOverride(origemId, destinoId);
+  const atual = overridesConexoes[chave] ? { ...overridesConexoes[chave] } : {};
+
+  if (qual === "start") {
+    atual.startSide = lado;
+    if (!atual.endSide) atual.endSide = "left"; // completa para a rota ter efeito imediato
+  } else {
+    atual.endSide = lado;
+    if (!atual.startSide) atual.startSide = "right";
+  }
+
+  overridesConexoes[chave] = atual;
+  salvarEstadoLocal(true);
+  gerarFluxo();          // re-renderiza respeitando o override
+  renderPopoverConexao();// reflete a seleção atual nos botões
+}
+
+function resetarConexaoAtual() {
+  if (!conexaoSelecionada) return;
+  const chave = chaveOverride(conexaoSelecionada.origemId, conexaoSelecionada.destinoId);
+  delete overridesConexoes[chave];
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  renderPopoverConexao();
+  mostrarToast("Conexão voltou ao roteamento automático.", "ok");
+}
+
+/* ---------- Painel de ordenação das raias ---------- */
+function renderPainelRaias() {
+  let painel = document.getElementById("painelRaias");
+  if (!painel) {
+    painel = document.createElement("div");
+    painel.id = "painelRaias";
+    const ref = document.getElementById("diagramScrollTop");
+    if (ref && ref.parentNode) {
+      ref.parentNode.insertBefore(painel, ref);
+    } else {
+      const wrap = document.getElementById("diagramWrap");
+      if (wrap && wrap.parentNode) wrap.parentNode.insertBefore(painel, wrap);
+    }
+  }
+
+  const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
+    ? ultimasAreasOrdenadas
+    : [];
+
+  if (!areas.length) {
+    painel.innerHTML = "";
+    return;
+  }
+
+  const itens = areas.map((nome, i) => `
+    <div class="raia-item">
+      <span class="raia-pos">${i + 1}º</span>
+      <span class="raia-nome" title="${escaparHTML(nome)}">${escaparHTML(nome)}</span>
+      <span class="raia-acoes">
+        <button type="button" ${i === 0 ? "disabled" : ""} onclick="moverRaia('${escaparHTML(nome).replace(/'/g, "\\'")}', -1)" title="Subir">↑</button>
+        <button type="button" ${i === areas.length - 1 ? "disabled" : ""} onclick="moverRaia('${escaparHTML(nome).replace(/'/g, "\\'")}', 1)" title="Descer">↓</button>
+      </span>
+    </div>`).join("");
+
+  painel.innerHTML = `
+    <div class="raias-header">
+      <span>Ordem das raias</span>
+      <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
+    </div>
+    <div class="raias-lista">${itens}</div>
+    <div class="raias-dica">Clique numa seta do fluxo para corrigir sua entrada/saída.</div>
+  `;
+}
+
+function moverRaia(nome, direcao) {
+  let base = (ordemRaias && ordemRaias.length) ? [...ordemRaias] : [...ultimasAreasOrdenadas];
+  // garante que todas as raias atuais estão na base e remove as que sumiram
+  ultimasAreasOrdenadas.forEach(a => { if (!base.includes(a)) base.push(a); });
+  base = base.filter(a => ultimasAreasOrdenadas.includes(a));
+
+  const i = base.indexOf(nome);
+  const j = i + direcao;
+  if (i === -1 || j < 0 || j >= base.length) return;
+
+  [base[i], base[j]] = [base[j], base[i]];
+  ordemRaias = base;
+  salvarEstadoLocal(true);
+  gerarFluxo(); // re-render reaplica camada e painel
+}
+
+function resetarAjustesFluxo() {
+  const temAjustes =
+    (overridesConexoes && Object.keys(overridesConexoes).length) ||
+    (ordemRaias && ordemRaias.length);
+
+  if (!temAjustes) {
+    mostrarToast("Não há ajustes manuais para resetar.", "info");
+    return;
+  }
+
+  if (!confirm("Remover todos os ajustes manuais de setas e ordem de raias?")) return;
+
+  overridesConexoes = {};
+  ordemRaias = [];
+  conexaoSelecionada = null;
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  fecharPopoverConexao();
+  mostrarToast("Ajustes manuais removidos. Fluxo voltou ao automático.", "ok");
+}
+
+/* Fecha o popover ao clicar fora dele (e fora das setas) */
+document.addEventListener("click", (event) => {
+  const pop = document.getElementById("popoverConexao");
+  if (!pop || pop.style.display === "none") return;
+  if (event.target.closest("#popoverConexao")) return;
+  if (event.target.closest("g.editor-ui")) return;
+  fecharPopoverConexao();
+});

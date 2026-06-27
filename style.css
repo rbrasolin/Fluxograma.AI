@@ -510,3 +510,166 @@ button:hover {
 @keyframes girarSpinner {
   to { transform: rotate(360deg); }
 }
+
+/* =========================
+   EDITOR INTERATIVO (Onda 2)
+========================= */
+
+.btn-editar.ativo {
+  background: #1d6fe0;
+}
+
+/* Painel de ordenação das raias */
+#painelRaias {
+  border: 1px solid #d9d9d9;
+  border-bottom: none;
+  background: #fafbfc;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.raias-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.raias-reset {
+  background: #999;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.raias-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.raia-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #fff;
+}
+
+.raia-pos {
+  font-size: 11px;
+  color: #1d6fe0;
+  font-weight: bold;
+}
+
+.raia-nome {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raia-acoes button {
+  background: #1d3557;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.raia-acoes button:disabled {
+  background: #c9c9c9;
+  cursor: not-allowed;
+}
+
+.raias-dica {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+/* Popover de ajuste de conexão */
+#popoverConexao {
+  position: fixed;
+  z-index: 10000;
+  display: none;
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+  width: 240px;
+  font-size: 13px;
+}
+
+#popoverConexao .pop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+#popoverConexao .pop-fechar {
+  background: transparent;
+  color: #666;
+  padding: 0 4px;
+  font-size: 14px;
+}
+
+#popoverConexao .pop-fechar:hover {
+  color: #111;
+}
+
+#popoverConexao .pop-grupo {
+  margin-bottom: 10px;
+}
+
+#popoverConexao .pop-label {
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 4px;
+}
+
+#popoverConexao .pop-botoes {
+  display: flex;
+  gap: 6px;
+}
+
+#popoverConexao .lado-btn {
+  flex: 1;
+  background: #eef1f5;
+  color: #1d3557;
+  border: 1px solid #d0d7de;
+  padding: 6px 0;
+  font-size: 14px;
+  border-radius: 5px;
+}
+
+#popoverConexao .lado-btn:hover {
+  background: #dde6f3;
+}
+
+#popoverConexao .lado-btn.sel {
+  background: #1d6fe0;
+  color: #fff;
+  border-color: #1d6fe0;
+}
+
+#popoverConexao .pop-rodape {
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+  text-align: center;
+}
+
+#popoverConexao .pop-auto {
+  background: transparent;
+  color: #1d6fe0;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+#popoverConexao .pop-auto:hover {
+  text-decoration: underline;
+}
