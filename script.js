@@ -16,6 +16,12 @@ let modoEdicaoAtivo = false;  // modo "Ajustar fluxo" ligado/desligado
 let conexaoSelecionada = null;// { origemId, destinoId } em edição
 let ultimasAreasOrdenadas = [];// snapshot das raias do último render (para o painel)
 
+/* ===== Estado do editor — rótulos, terminais Início/Fim (Onda 2.2) ===== */
+let rotulosConexoes = {};     // chave "origemId__destinoId" -> "Sim" | "Não" | ""
+let terminais = [];           // [{ id, tipo:'inicio'|'fim', alvo: idVisual }]
+let inicioAlvo = "";          // idVisual da caixa onde o Início padrão conecta ("" = primeira)
+let terminalCounter = 1;
+
 const STORAGE_KEY = "gerador_fluxograma_estado_v1";
 let saveStateTimeout = null;
 
@@ -48,13 +54,17 @@ function obterEstadoAtual() {
           proxSim: item.proxSim || "",
           proxSimAuto: !!item.proxSimAuto,
           proxNao: item.proxNao || "",
-          extras: Array.isArray(item.extras) ? [...item.extras] : []
+          extras: Array.isArray(item.extras) ? [...item.extras] : [],
+          semSaida: !!item.semSaida
         }))
       : [],
     uidCounter: Number(uidCounter) || 1,
     ultimoNomeArquivo: ultimoNomeArquivo || "fluxograma_processo",
     overridesConexoes: overridesConexoes && typeof overridesConexoes === "object" ? overridesConexoes : {},
-    ordemRaias: Array.isArray(ordemRaias) ? [...ordemRaias] : []
+    ordemRaias: Array.isArray(ordemRaias) ? [...ordemRaias] : [],
+    rotulosConexoes: rotulosConexoes && typeof rotulosConexoes === "object" ? rotulosConexoes : {},
+    terminais: Array.isArray(terminais) ? [...terminais] : [],
+    inicioAlvo: inicioAlvo || ""
   };
 }
 
@@ -154,6 +164,16 @@ function restaurarEstadoLocal() {
         ? estado.overridesConexoes
         : {};
     ordemRaias = Array.isArray(estado.ordemRaias) ? estado.ordemRaias : [];
+    rotulosConexoes =
+      estado.rotulosConexoes && typeof estado.rotulosConexoes === "object"
+        ? estado.rotulosConexoes
+        : {};
+    terminais = Array.isArray(estado.terminais) ? estado.terminais : [];
+    inicioAlvo = estado.inicioAlvo || "";
+    terminalCounter = (terminais.reduce((m, t) => {
+      const n = parseInt(String(t.id).replace(/\D/g, ""), 10) || 0;
+      return Math.max(m, n);
+    }, 0)) + 1;
 
     if (!fluxoData.length) {
       fluxoData = [];
@@ -3555,9 +3575,19 @@ function escolherRota(origem, destino, contexto = {}) {
       endAnchor
     ]);
 
+    // Rótulo sobre a seta, junto à saída (não na média geométrica dos anchors).
+    const along = 22, perp = 12;
+    let labelPoint;
+    switch (override.startSide) {
+      case "left":   labelPoint = { x: startAnchor.x - along, y: startAnchor.y - perp }; break;
+      case "top":    labelPoint = { x: startAnchor.x + perp, y: startAnchor.y - along }; break;
+      case "bottom": labelPoint = { x: startAnchor.x + perp, y: startAnchor.y + along }; break;
+      default:       labelPoint = { x: startAnchor.x + along, y: startAnchor.y - perp };
+    }
+
     return montarRotaOrtogonal(
       pontosFinais,
-      { x: (startAnchor.x + endAnchor.x) / 2, y: (startAnchor.y + endAnchor.y) / 2 - 10 },
+      labelPoint,
       override.startSide,
       override.endSide
     );
@@ -4327,7 +4357,8 @@ function obterEtapasDaTabela() {
         .join(","),
       coluna: Math.max(1, Number(linha.coluna) || 1),
       linha: Math.max(1, Number(linha.linha) || 1),
-      cor: normalizarCor(linha.cor || "white")
+      cor: normalizarCor(linha.cor || "white"),
+      semSaida: !!linha.semSaida
     };
   });
 }
@@ -4531,17 +4562,24 @@ function gerarFluxo() {
 
   const primeiraLane = lanes[primeiraEtapa.area];
 
+  // Caixa onde o Início conecta: padrão = primeira; pode ser reassinada (inicioAlvo)
+  const inicioAlvoId = (inicioAlvo && posicoes[inicioAlvo]) ? inicioAlvo : primeiraEtapa.id;
+  const alvoInicioPos = posicoes[inicioAlvoId];
+  const alvoInicioLane = lanes[alvoInicioPos.area];
+
   posicoes["__INICIO__"] = {
     id: "__INICIO__",
-    x: primeiraLane.x + CONFIG.laneLabelWidth + 20,
-    y: primeiraPos.y + (primeiraPos.h - 36) / 2,
+    x: (inicioAlvoId === primeiraEtapa.id)
+        ? primeiraLane.x + CONFIG.laneLabelWidth + 20
+        : alvoInicioPos.x - 60 - CONFIG.entryExitGap,
+    y: alvoInicioPos.y + (alvoInicioPos.h - 36) / 2,
     w: 60,
     h: 36,
     isDecision: false,
-    gridCol: Math.max(0, primeiraPos.gridCol - 1),
-    gridRow: primeiraPos.gridRow,
-    gridRowGlobal: primeiraPos.gridRowGlobal,
-    area: primeiraPos.area
+    gridCol: Math.max(0, alvoInicioPos.gridCol - 1),
+    gridRow: alvoInicioPos.gridRow,
+    gridRowGlobal: alvoInicioPos.gridRowGlobal,
+    area: alvoInicioPos.area
   };
 
   posicoes["__FIM__"] = {
@@ -4574,7 +4612,7 @@ function gerarFluxo() {
   desenharConexao(
     svg,
     posicoes["__INICIO__"],
-    posicoes[primeiraEtapa.id],
+    posicoes[inicioAlvoId],
     "",
     0,
     posicoes,
@@ -4602,7 +4640,7 @@ function gerarFluxo() {
         svg,
         origem,
         posicoes[destinoId],
-        pergunta ? (indice === 0 ? "Sim" : `Sim ${indice + 1}`) : "",
+        rotuloConexaoFinal(etapa.id, destinoId, pergunta ? (indice === 0 ? "Sim" : `Sim ${indice + 1}`) : ""),
         indice,
         posicoes,
         sharedRegistry,
@@ -4621,7 +4659,7 @@ function gerarFluxo() {
         svg,
         origem,
         posicoes[destinoId],
-        pergunta ? (indice === 0 ? "Não" : `Não ${indice + 1}`) : (indice === 0 ? "Não" : `Não ${indice + 1}`),
+        rotuloConexaoFinal(etapa.id, destinoId, pergunta ? (indice === 0 ? "Não" : `Não ${indice + 1}`) : (indice === 0 ? "Não" : `Não ${indice + 1}`)),
         indice,
         posicoes,
         sharedRegistry,
@@ -4641,7 +4679,7 @@ function gerarFluxo() {
         svg,
         origem,
         posicoes[destinoId],
-        "",
+        rotuloConexaoFinal(etapa.id, destinoId, ""),
         indice + 1,
         posicoes,
         sharedRegistry,
@@ -4656,6 +4694,11 @@ function gerarFluxo() {
     const destinosExtras = quebrarListaIds(etapa.conexoesExtras).filter(destino => destinoEhValido(destino, idsValidos));
 
     if (destinosSim.length === 0 && destinosNao.length === 0 && destinosExtras.length === 0) {
+      // Se o usuário removeu a saída de propósito (semSaida), a caixa fica
+      // sem seta. A regra do Fim automático vale só para caixas que nunca
+      // tiveram saída definida (ex.: última caixa do fluxo).
+      if (etapa.semSaida) return;
+
       desenharConexao(
         svg,
         posicoes[etapa.id],
@@ -4668,6 +4711,49 @@ function gerarFluxo() {
       );
     }
   });
+
+  // Terminais extras (Início/Fim adicionais) próximos da caixa escolhida,
+  // mantendo a mesma distância dos terminais originais.
+  if (Array.isArray(terminais) && terminais.length) {
+    const usadosPorAlvo = {};
+    terminais.forEach((t) => {
+      const alvoPos = posicoes[t.alvo];
+      if (!alvoPos) return;
+
+      // pequeno deslocamento vertical se houver mais de um terminal na mesma caixa
+      const k = `${t.tipo}_${t.alvo}`;
+      const desloc = (usadosPorAlvo[k] || 0);
+      usadosPorAlvo[k] = desloc + 1;
+      const dy = desloc * 46;
+
+      const termId = (t.tipo === "inicio" ? "__INI_" : "__FIMX_") + t.id + "__";
+      const ehInicio = t.tipo === "inicio";
+
+      posicoes[termId] = {
+        id: termId,
+        x: ehInicio
+            ? alvoPos.x - 60 - CONFIG.entryExitGap
+            : alvoPos.x + alvoPos.w + CONFIG.entryExitGap,
+        y: alvoPos.y + (alvoPos.h - 36) / 2 + dy,
+        w: 60,
+        h: 36,
+        isDecision: false,
+        gridCol: ehInicio ? Math.max(0, alvoPos.gridCol - 1) : alvoPos.gridCol + 1,
+        gridRow: alvoPos.gridRow,
+        gridRowGlobal: alvoPos.gridRowGlobal,
+        area: alvoPos.area
+      };
+
+      desenharCapsula(svg, ehInicio ? "Início" : "Fim",
+        posicoes[termId].x, posicoes[termId].y, 60, 36);
+
+      if (ehInicio) {
+        desenharConexao(svg, posicoes[termId], alvoPos, "", 0, posicoes, sharedRegistry, routeRegistry);
+      } else {
+        desenharConexao(svg, alvoPos, posicoes[termId], "", 0, posicoes, sharedRegistry, routeRegistry);
+      }
+    });
+  }
 
   document.getElementById("diagram").innerHTML = "";
   document.getElementById("diagram").appendChild(svg);
@@ -6105,6 +6191,14 @@ function obterOverrideConexao(origemId, destinoId) {
   return overridesConexoes[chaveOverride(origemId, destinoId)] || null;
 }
 
+/* Rótulo final de uma conexão: usa o rótulo explícito (Sim/Não) se o
+   usuário definiu; caso contrário, o padrão calculado pelo motor. */
+function rotuloConexaoFinal(origemId, destinoId, padrao) {
+  if (!rotulosConexoes) return padrao;
+  const v = rotulosConexoes[chaveOverride(origemId, destinoId)];
+  return (v === undefined || v === null) ? padrao : v;
+}
+
 /* ---------- Toggle do modo de edição ---------- */
 function alternarModoEdicao() {
   if (!document.querySelector("#diagram svg")) {
@@ -6358,12 +6452,41 @@ function renderPainelRaias() {
       </span>
     </div>`).join("");
 
+  // Controles de Início/Fim (ponto 4)
+  const atividades = listaAtividadesSelect();
+  const opcInicio = [`<option value="">Primeira atividade (padrão)</option>`]
+    .concat(atividades.map(a => {
+      const sel = a.id === inicioAlvo ? " selected" : "";
+      return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
+    })).join("");
+
+  const listaTerminais = (terminais || []).map(t => `
+    <div class="terminal-item">
+      <span>${t.tipo === "inicio" ? "Início" : "Fim"} → ${escaparHTML(t.alvo)} · ${escaparHTML(descricaoNo(t.alvo))}</span>
+      <button type="button" onclick="removerTerminal('${t.id}')" title="Remover">✕</button>
+    </div>`).join("");
+
+  const blocoTerminais = `
+    <div class="terminais-bloco">
+      <div class="terminais-titulo">Início e Fim</div>
+      <div class="terminal-linha">
+        <span class="pop-label">Início conecta em</span>
+        <select class="pop-select" onchange="definirInicioAlvo(this.value)">${opcInicio}</select>
+      </div>
+      <div class="terminal-acoes">
+        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('inicio')">+ Início</button>
+        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('fim')">+ Fim</button>
+      </div>
+      ${listaTerminais ? `<div class="terminais-lista">${listaTerminais}</div>` : ""}
+    </div>`;
+
   painel.innerHTML = `
     <div class="raias-header">
       <span>Ordem das raias</span>
       <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
     </div>
     <div class="raias-lista">${itens}</div>
+    ${blocoTerminais}
     <div class="raias-dica">
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao()">+ Nova seta</button>
       <span>Clique numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
@@ -6390,7 +6513,11 @@ function moverRaia(nome, direcao) {
 function resetarAjustesFluxo() {
   const temAjustes =
     (overridesConexoes && Object.keys(overridesConexoes).length) ||
-    (ordemRaias && ordemRaias.length);
+    (ordemRaias && ordemRaias.length) ||
+    (rotulosConexoes && Object.keys(rotulosConexoes).length) ||
+    (terminais && terminais.length) ||
+    inicioAlvo ||
+    (Array.isArray(fluxoData) && fluxoData.some(l => l && l.semSaida));
 
   if (!temAjustes) {
     mostrarToast("Não há ajustes manuais para resetar.", "info");
@@ -6401,7 +6528,12 @@ function resetarAjustesFluxo() {
 
   overridesConexoes = {};
   ordemRaias = [];
+  rotulosConexoes = {};
+  terminais = [];
+  inicioAlvo = "";
   conexaoSelecionada = null;
+  // limpa marcações de "sem saída" feitas manualmente
+  fluxoData.forEach(l => { if (l) l.semSaida = false; });
   salvarEstadoLocal(true);
   gerarFluxo();
   fecharPopoverConexao();
@@ -6474,12 +6606,8 @@ function tipoConexaoPorUid(origemUid, destinoUid) {
 /* Uma conexão é "estrutural" (editável) quando liga duas atividades reais.
    Setas de/para Início e Fim são automáticas e não entram aqui. */
 function conexaoEhEstrutural(origemVisual, destinoVisual) {
-  return (
-    origemVisual !== "__INICIO__" &&
-    origemVisual !== "__FIM__" &&
-    destinoVisual !== "__INICIO__" &&
-    destinoVisual !== "__FIM__"
-  );
+  const ehTerminal = (id) => typeof id === "string" && id.startsWith("__");
+  return !ehTerminal(origemVisual) && !ehTerminal(destinoVisual);
 }
 
 function persistirEdicaoEstrutural() {
@@ -6519,6 +6647,10 @@ function alterarDestinoConexao(origemVisual, destinoAntigo, destinoNovo) {
     overridesConexoes[chaveNova] = overridesConexoes[chaveAntiga];
     delete overridesConexoes[chaveAntiga];
   }
+  if (rotulosConexoes[chaveAntiga] !== undefined) {
+    rotulosConexoes[chaveNova] = rotulosConexoes[chaveAntiga];
+    delete rotulosConexoes[chaveAntiga];
+  }
 
   conexaoSelecionada = { origemId: origemVisual, destinoId: destinoNovo };
   persistirEdicaoEstrutural();
@@ -6539,7 +6671,15 @@ function apagarConexao(origemVisual, destinoVisual) {
   else if (tipo === "extra") linha.extras = linha.extras.filter(u => u !== dUid);
   else return;
 
+  // Se não sobrou nenhuma saída, marca como "sem saída de propósito"
+  // para o motor não reconectar ao Fim automaticamente.
+  const aindaTemSaida =
+    limpar(linha.proxSim || "") || limpar(linha.proxNao || "") ||
+    (Array.isArray(linha.extras) && linha.extras.length > 0);
+  linha.semSaida = !aindaTemSaida;
+
   delete overridesConexoes[chaveOverride(origemVisual, destinoVisual)];
+  delete rotulosConexoes[chaveOverride(origemVisual, destinoVisual)];
   fecharPopoverConexao();
   persistirEdicaoEstrutural();
   mostrarToast("Seta removida.", "ok");
@@ -6578,6 +6718,15 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
   } else {
     linha.extras.push(dUid);
   }
+
+  // Caixa voltou a ter saída -> não é mais "sem saída de propósito".
+  linha.semSaida = false;
+
+  // Rótulo explícito: se o usuário escolheu Sim/Não, a seta sempre mostra o texto
+  // (mesmo entre caixas que não são decisão).
+  const chave = chaveOverride(origemVisual, destinoVisual);
+  if (tipo === "sim") rotulosConexoes[chave] = "Sim";
+  else if (tipo === "nao") rotulosConexoes[chave] = "Não";
 
   fecharCriadorConexao();
   persistirEdicaoEstrutural();
@@ -6648,5 +6797,90 @@ function confirmarCriarConexao() {
 
 function fecharCriadorConexao() {
   const box = document.getElementById("criadorConexao");
+  if (box) box.style.display = "none";
+}
+
+/* =====================================================================
+   ONDA 2.2 — Terminais Início/Fim (mover e adicionar)
+===================================================================== */
+
+function definirInicioAlvo(idVisual) {
+  inicioAlvo = idVisual || "";
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  mostrarToast(
+    inicioAlvo ? `Início agora conecta em ${inicioAlvo}.` : "Início voltou para a primeira atividade.",
+    "ok"
+  );
+}
+
+function adicionarTerminal(tipo, alvoIdVisual) {
+  const { visualParaUid } = mapaIdVisualUid();
+  if (!visualParaUid[alvoIdVisual]) {
+    mostrarToast("Selecione uma atividade válida.", "alerta");
+    return;
+  }
+  terminais.push({ id: `T${terminalCounter++}`, tipo, alvo: alvoIdVisual });
+  fecharCriadorTerminal();
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  mostrarToast(`${tipo === "inicio" ? "Início" : "Fim"} adicional criado em ${alvoIdVisual}.`, "ok");
+}
+
+function removerTerminal(id) {
+  terminais = terminais.filter(t => t.id !== id);
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  mostrarToast("Terminal removido.", "ok");
+}
+
+/* Formulário flutuante para criar um terminal Início/Fim extra */
+function abrirCriadorTerminal(tipo) {
+  const atividades = listaAtividadesSelect();
+  if (!atividades.length) {
+    mostrarToast("Crie atividades antes de adicionar terminais.", "alerta");
+    return;
+  }
+
+  let box = document.getElementById("criadorTerminal");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "criadorTerminal";
+    document.body.appendChild(box);
+  }
+
+  const opcoes = atividades
+    .map(a => `<option value="${escaparHTML(a.id)}">${escaparHTML(a.label)}</option>`)
+    .join("");
+
+  const titulo = tipo === "inicio" ? "Novo Início" : "Novo Fim";
+  const label = tipo === "inicio" ? "Conectar o Início em" : "Trazer o Fim a partir de";
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>${titulo}</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharCriadorTerminal()">✕</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">${label}</div>
+      <select id="novoTerminalAlvo" class="pop-select">${opcoes}</select>
+    </div>
+    <div class="pop-rodape pop-rodape-acoes">
+      <button type="button" class="pop-criar" onclick="confirmarCriarTerminal('${tipo}')">Adicionar</button>
+    </div>
+  `;
+  box.style.display = "block";
+  box.style.left = Math.max(10, (window.innerWidth - (box.offsetWidth || 280)) / 2) + "px";
+  box.style.top = "90px";
+}
+
+function confirmarCriarTerminal(tipo) {
+  const sel = document.getElementById("novoTerminalAlvo");
+  if (!sel) return;
+  adicionarTerminal(tipo, sel.value);
+}
+
+function fecharCriadorTerminal() {
+  const box = document.getElementById("criadorTerminal");
   if (box) box.style.display = "none";
 }
