@@ -673,3 +673,77 @@ button:hover {
 #popoverConexao .pop-auto:hover {
   text-decoration: underline;
 }
+
+/* =========================
+   EDITOR — edição estrutural (Onda 2.1)
+========================= */
+
+#popoverConexao .pop-titulo {
+  font-size: 12.5px;
+  line-height: 1.35;
+  max-width: 200px;
+}
+
+.pop-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 5px;
+  font-size: 12.5px;
+  background: #fff;
+}
+
+.pop-rodape-acoes {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#popoverConexao .pop-apagar {
+  background: #c0392b;
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+
+#popoverConexao .pop-apagar:hover {
+  background: #a93226;
+}
+
+/* Criador de nova conexão */
+#criadorConexao {
+  position: fixed;
+  z-index: 10000;
+  display: none;
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+  width: 280px;
+  font-size: 13px;
+}
+
+#criadorConexao .pop-criar {
+  background: #2e7d32;
+  color: #fff;
+  width: 100%;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+#criadorConexao .pop-criar:hover {
+  background: #276a2b;
+}
+
+.btn-nova-seta {
+  background: #1d3557;
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  margin-right: 10px;
+}

@@ -3531,15 +3531,33 @@ function escolherRota(origem, destino, contexto = {}) {
   // === Override manual do editor: força os lados escolhidos pelo usuário ===
   const override = obterOverrideConexao(origem.id, destino.id);
   if (override && override.startSide && override.endSide) {
-    const start = getAnchorPoint(origem, override.startSide);
-    const end = getAnchorPoint(destino, override.endSide);
-    const rota = encontrarRotaSegura(
-      start, end, posicoes, excludeIds,
-      override.endSide, override.startSide, destino
+    const APPROACH = Math.max(CONFIG.sharedMergeGap || 0, 26);
+
+    const startAnchor = getAnchorPoint(origem, override.startSide);
+    const endAnchor = getAnchorPoint(destino, override.endSide);
+
+    // Pontos de aproximação fora da origem e do destino, alinhados ao lado.
+    const startApproach = getMergePoint(startAnchor, override.startSide, APPROACH);
+    const endApproach = getMergePoint(endAnchor, override.endSide, APPROACH);
+
+    // No trecho do meio, MANTÉM origem e destino como obstáculos (só ignora
+    // Início/Fim), para que a rota contorne as caixas em vez de atravessá-las.
+    const excludeMeio = ["__INICIO__", "__FIM__"];
+    const rotaMeio = encontrarRotaSegura(
+      startApproach, endApproach, posicoes, excludeMeio, null, null, null
     );
+
+    const pontosFinais = normalizarPontos([
+      startAnchor,
+      startApproach,
+      ...rotaMeio.points,
+      endApproach,
+      endAnchor
+    ]);
+
     return montarRotaOrtogonal(
-      rota.points,
-      { x: (start.x + end.x) / 2, y: start.y - 10 },
+      pontosFinais,
+      { x: (startAnchor.x + endAnchor.x) / 2, y: (startAnchor.y + endAnchor.y) / 2 - 10 },
       override.startSide,
       override.endSide
     );
@@ -6204,6 +6222,7 @@ function renderPopoverConexao() {
 
   const { origemId, destinoId } = conexaoSelecionada;
   const override = obterOverrideConexao(origemId, destinoId) || {};
+  const estrutural = conexaoEhEstrutural(origemId, destinoId);
 
   const botoesLado = (qual, ativo) =>
     LADOS.map(l => {
@@ -6212,21 +6231,46 @@ function renderPopoverConexao() {
         onclick="definirLadoConexao('${qual}','${l.lado}')">${l.icone}</button>`;
     }).join("");
 
+  // Seletor de destino (só para conexões entre atividades reais)
+  let blocoDestino = "";
+  if (estrutural) {
+    const opcoes = listaAtividadesSelect()
+      .map(a => {
+        const sel = a.id === destinoId ? " selected" : "";
+        return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
+      })
+      .join("");
+    blocoDestino = `
+      <div class="pop-grupo">
+        <div class="pop-label">Conectar em (destino)</div>
+        <select class="pop-select"
+          onchange="alterarDestinoConexao('${origemId}','${destinoId}', this.value)">
+          ${opcoes}
+        </select>
+      </div>`;
+  }
+
+  const acoesRodape = estrutural
+    ? `<button type="button" class="pop-apagar" onclick="apagarConexao('${origemId}','${destinoId}')">Apagar seta</button>
+       <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`
+    : `<button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`;
+
   pop.innerHTML = `
     <div class="pop-header">
-      <span>Conexão <b>${rotuloNo(origemId)} → ${rotuloNo(destinoId)}</b></span>
+      <span class="pop-titulo">${escaparHTML(rotuloNoComId(origemId))}<br>→ ${escaparHTML(rotuloNoComId(destinoId))}</span>
       <button type="button" class="pop-fechar" onclick="fecharPopoverConexao()">✕</button>
     </div>
     <div class="pop-grupo">
-      <div class="pop-label">Saída de ${rotuloNo(origemId)}</div>
+      <div class="pop-label">Saída de ${escaparHTML(descricaoNo(origemId))}</div>
       <div class="pop-botoes">${botoesLado("start", override.startSide)}</div>
     </div>
     <div class="pop-grupo">
-      <div class="pop-label">Entrada em ${rotuloNo(destinoId)}</div>
+      <div class="pop-label">Entrada em ${escaparHTML(descricaoNo(destinoId))}</div>
       <div class="pop-botoes">${botoesLado("end", override.endSide)}</div>
     </div>
-    <div class="pop-rodape">
-      <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Voltar ao automático</button>
+    ${blocoDestino}
+    <div class="pop-rodape pop-rodape-acoes">
+      ${acoesRodape}
     </div>
   `;
 
@@ -6320,7 +6364,10 @@ function renderPainelRaias() {
       <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
     </div>
     <div class="raias-lista">${itens}</div>
-    <div class="raias-dica">Clique numa seta do fluxo para corrigir sua entrada/saída.</div>
+    <div class="raias-dica">
+      <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao()">+ Nova seta</button>
+      <span>Clique numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
+    </div>
   `;
 }
 
@@ -6369,3 +6416,237 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("g.editor-ui")) return;
   fecharPopoverConexao();
 });
+
+/* =====================================================================
+   ONDA 2.1 — Edição estrutural de conexões
+   (trocar destino, apagar e criar setas; descrições por atividade)
+   Mexe em fluxoData (proxSim / proxNao / extras), por UID.
+===================================================================== */
+
+function mapaIdVisualUid() {
+  const validas = fluxoData.filter(l => limpar(l.atividade || "") !== "");
+  const visualParaUid = {};
+  const uidParaVisual = {};
+  validas.forEach((l, i) => {
+    const v = gerarIdVisual(i);
+    visualParaUid[v] = l.uid;
+    uidParaVisual[l.uid] = v;
+  });
+  return { visualParaUid, uidParaVisual, validas };
+}
+
+/* Descrição amigável de um nó (atividade), com fallback para o ID */
+function descricaoNo(idVisual) {
+  if (idVisual === "__INICIO__") return "Início";
+  if (idVisual === "__FIM__") return "Fim";
+  const { visualParaUid } = mapaIdVisualUid();
+  const uid = visualParaUid[idVisual];
+  const linha = fluxoData.find(l => l.uid === uid);
+  const desc = linha ? limpar(linha.atividade || "") : "";
+  return desc || idVisual;
+}
+
+/* Rótulo curto "C · Efetuar pagamento" para selects */
+function rotuloNoComId(idVisual) {
+  const desc = descricaoNo(idVisual);
+  if (idVisual === "__INICIO__" || idVisual === "__FIM__") return desc;
+  return `${idVisual} · ${desc}`;
+}
+
+/* Lista de atividades para os seletores de destino/origem */
+function listaAtividadesSelect() {
+  const { validas } = mapaIdVisualUid();
+  return validas.map((l, i) => ({
+    id: gerarIdVisual(i),
+    label: `${gerarIdVisual(i)} · ${limpar(l.atividade || "")}`
+  }));
+}
+
+function tipoConexaoPorUid(origemUid, destinoUid) {
+  const linha = fluxoData.find(l => l.uid === origemUid);
+  if (!linha) return null;
+  if (linha.proxSim === destinoUid) return "sim";
+  if (linha.proxNao === destinoUid) return "nao";
+  if (Array.isArray(linha.extras) && linha.extras.includes(destinoUid)) return "extra";
+  return null;
+}
+
+/* Uma conexão é "estrutural" (editável) quando liga duas atividades reais.
+   Setas de/para Início e Fim são automáticas e não entram aqui. */
+function conexaoEhEstrutural(origemVisual, destinoVisual) {
+  return (
+    origemVisual !== "__INICIO__" &&
+    origemVisual !== "__FIM__" &&
+    destinoVisual !== "__INICIO__" &&
+    destinoVisual !== "__FIM__"
+  );
+}
+
+function persistirEdicaoEstrutural() {
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+}
+
+function alterarDestinoConexao(origemVisual, destinoAntigo, destinoNovo) {
+  if (destinoNovo === destinoAntigo) return;
+  const { visualParaUid } = mapaIdVisualUid();
+  const oUid = visualParaUid[origemVisual];
+  const dAntigo = visualParaUid[destinoAntigo];
+  const dNovo = visualParaUid[destinoNovo];
+  const linha = fluxoData.find(l => l.uid === oUid);
+  if (!linha || !dNovo) return;
+
+  if (oUid === dNovo) {
+    mostrarToast("Uma atividade não pode conectar nela mesma.", "alerta");
+    return;
+  }
+
+  const tipo = tipoConexaoPorUid(oUid, dAntigo);
+  if (tipo === "sim") linha.proxSim = dNovo;
+  else if (tipo === "nao") linha.proxNao = dNovo;
+  else if (tipo === "extra") {
+    const i = linha.extras.indexOf(dAntigo);
+    if (i !== -1) linha.extras[i] = dNovo;
+  } else {
+    return;
+  }
+
+  // O override de lados era do par antigo; transfere para o novo par.
+  const chaveAntiga = chaveOverride(origemVisual, destinoAntigo);
+  const chaveNova = chaveOverride(origemVisual, destinoNovo);
+  if (overridesConexoes[chaveAntiga]) {
+    overridesConexoes[chaveNova] = overridesConexoes[chaveAntiga];
+    delete overridesConexoes[chaveAntiga];
+  }
+
+  conexaoSelecionada = { origemId: origemVisual, destinoId: destinoNovo };
+  persistirEdicaoEstrutural();
+  renderPopoverConexao();
+  mostrarToast(`Destino alterado para ${destinoNovo}.`, "ok");
+}
+
+function apagarConexao(origemVisual, destinoVisual) {
+  const { visualParaUid } = mapaIdVisualUid();
+  const oUid = visualParaUid[origemVisual];
+  const dUid = visualParaUid[destinoVisual];
+  const linha = fluxoData.find(l => l.uid === oUid);
+  if (!linha) return;
+
+  const tipo = tipoConexaoPorUid(oUid, dUid);
+  if (tipo === "sim") linha.proxSim = "";
+  else if (tipo === "nao") linha.proxNao = "";
+  else if (tipo === "extra") linha.extras = linha.extras.filter(u => u !== dUid);
+  else return;
+
+  delete overridesConexoes[chaveOverride(origemVisual, destinoVisual)];
+  fecharPopoverConexao();
+  persistirEdicaoEstrutural();
+  mostrarToast("Seta removida.", "ok");
+}
+
+function criarConexao(origemVisual, destinoVisual, tipo) {
+  const { visualParaUid } = mapaIdVisualUid();
+  const oUid = visualParaUid[origemVisual];
+  const dUid = visualParaUid[destinoVisual];
+  if (!oUid || !dUid) {
+    mostrarToast("Selecione origem e destino válidos.", "alerta");
+    return;
+  }
+  if (oUid === dUid) {
+    mostrarToast("Origem e destino não podem ser a mesma atividade.", "alerta");
+    return;
+  }
+  const linha = fluxoData.find(l => l.uid === oUid);
+  if (!Array.isArray(linha.extras)) linha.extras = [];
+
+  const jaExiste =
+    linha.proxSim === dUid || linha.proxNao === dUid || linha.extras.includes(dUid);
+  if (jaExiste) {
+    mostrarToast("Essa conexão já existe.", "alerta");
+    return;
+  }
+
+  if (tipo === "sim") {
+    if (linha.proxSim && linha.proxSim !== dUid && !linha.extras.includes(linha.proxSim)) {
+      linha.extras.push(linha.proxSim); // não perde a saída anterior
+    }
+    linha.proxSim = dUid;
+    linha.proxSimAuto = false;
+  } else if (tipo === "nao") {
+    linha.proxNao = dUid;
+  } else {
+    linha.extras.push(dUid);
+  }
+
+  fecharCriadorConexao();
+  persistirEdicaoEstrutural();
+  mostrarToast(`Nova seta criada: ${origemVisual} → ${destinoVisual}.`, "ok");
+}
+
+/* ---------- Criador de nova conexão (formulário flutuante) ---------- */
+function abrirCriadorConexao() {
+  const atividades = listaAtividadesSelect();
+  if (atividades.length < 2) {
+    mostrarToast("É preciso ter ao menos duas atividades para criar uma seta.", "alerta");
+    return;
+  }
+
+  let box = document.getElementById("criadorConexao");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "criadorConexao";
+    document.body.appendChild(box);
+  }
+
+  const opcoes = atividades
+    .map(a => `<option value="${escaparHTML(a.id)}">${escaparHTML(a.label)}</option>`)
+    .join("");
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Nova seta</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharCriadorConexao()">✕</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">De (origem)</div>
+      <select id="novaConexaoOrigem" class="pop-select">${opcoes}</select>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Para (destino)</div>
+      <select id="novaConexaoDestino" class="pop-select">${opcoes}</select>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Tipo</div>
+      <select id="novaConexaoTipo" class="pop-select">
+        <option value="extra">Conexão extra (sem rótulo)</option>
+        <option value="sim">Saída principal (Sim)</option>
+        <option value="nao">Saída "Não" (decisão)</option>
+      </select>
+    </div>
+    <div class="pop-rodape pop-rodape-acoes">
+      <button type="button" class="pop-criar" onclick="confirmarCriarConexao()">Criar seta</button>
+    </div>
+  `;
+
+  // pré-seleciona destino diferente da origem
+  const selDest = box.querySelector("#novaConexaoDestino");
+  if (atividades.length > 1) selDest.selectedIndex = 1;
+
+  box.style.display = "block";
+  box.style.left = Math.max(10, (window.innerWidth - (box.offsetWidth || 260)) / 2) + "px";
+  box.style.top = "90px";
+}
+
+function confirmarCriarConexao() {
+  const o = document.getElementById("novaConexaoOrigem");
+  const d = document.getElementById("novaConexaoDestino");
+  const t = document.getElementById("novaConexaoTipo");
+  if (!o || !d || !t) return;
+  criarConexao(o.value, d.value, t.value);
+}
+
+function fecharCriadorConexao() {
+  const box = document.getElementById("criadorConexao");
+  if (box) box.style.display = "none";
+}
