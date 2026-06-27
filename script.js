@@ -20,6 +20,7 @@ let ultimasAreasOrdenadas = [];// snapshot das raias do último render (para o p
 let rotulosConexoes = {};     // chave "origemId__destinoId" -> "Sim" | "Não" | ""
 let terminais = [];           // [{ id, tipo:'inicio'|'fim', alvo: idVisual }]
 let inicioAlvo = "";          // idVisual da caixa onde o Início padrão conecta ("" = primeira)
+let fimOrigem = "";           // idVisual da caixa de onde o Fim padrão vem ("" = última)
 let terminalCounter = 1;
 
 const STORAGE_KEY = "gerador_fluxograma_estado_v1";
@@ -64,7 +65,8 @@ function obterEstadoAtual() {
     ordemRaias: Array.isArray(ordemRaias) ? [...ordemRaias] : [],
     rotulosConexoes: rotulosConexoes && typeof rotulosConexoes === "object" ? rotulosConexoes : {},
     terminais: Array.isArray(terminais) ? [...terminais] : [],
-    inicioAlvo: inicioAlvo || ""
+    inicioAlvo: inicioAlvo || "",
+    fimOrigem: fimOrigem || ""
   };
 }
 
@@ -170,6 +172,7 @@ function restaurarEstadoLocal() {
         : {};
     terminais = Array.isArray(estado.terminais) ? estado.terminais : [];
     inicioAlvo = estado.inicioAlvo || "";
+    fimOrigem = estado.fimOrigem || "";
     terminalCounter = (terminais.reduce((m, t) => {
       const n = parseInt(String(t.id).replace(/\D/g, ""), 10) || 0;
       return Math.max(m, n);
@@ -4582,17 +4585,21 @@ function gerarFluxo() {
     area: alvoInicioPos.area
   };
 
+  // Caixa de onde o Fim vem: padrão = última; pode ser reassinada (fimOrigem)
+  const fimOrigemId = (fimOrigem && posicoes[fimOrigem]) ? fimOrigem : ultimaEtapa.id;
+  const origemFimPos = posicoes[fimOrigemId];
+
   posicoes["__FIM__"] = {
     id: "__FIM__",
-    x: ultimaPos.x + ultimaPos.w + CONFIG.entryExitGap,
-    y: ultimaPos.y + (ultimaPos.h - 36) / 2,
+    x: origemFimPos.x + origemFimPos.w + CONFIG.entryExitGap,
+    y: origemFimPos.y + (origemFimPos.h - 36) / 2,
     w: 60,
     h: 36,
     isDecision: false,
-    gridCol: ultimaPos.gridCol + 1,
-    gridRow: ultimaPos.gridRow,
-    gridRowGlobal: ultimaPos.gridRowGlobal,
-    area: ultimaPos.area
+    gridCol: origemFimPos.gridCol + 1,
+    gridRow: origemFimPos.gridRow,
+    gridRowGlobal: origemFimPos.gridRowGlobal,
+    area: origemFimPos.area
   };
 
   desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
@@ -4712,6 +4719,20 @@ function gerarFluxo() {
     }
   });
 
+  // Se o usuário definiu de onde o Fim vem e essa caixa tem saída própria,
+  // liga essa caixa ao Fim explicitamente (o laço acima só cobre caixas sem saída).
+  if (fimOrigem && posicoes[fimOrigem]) {
+    const lf = etapas.find(e => e.id === fimOrigem);
+    const temSaida = lf && (
+      quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length
+    );
+    if (temSaida) {
+      desenharConexao(svg, posicoes[fimOrigem], posicoes["__FIM__"], "", 0, posicoes, sharedRegistry, routeRegistry);
+    }
+  }
+
   // Terminais extras (Início/Fim adicionais) próximos da caixa escolhida,
   // mantendo a mesma distância dos terminais originais.
   if (Array.isArray(terminais) && terminais.length) {
@@ -4720,28 +4741,44 @@ function gerarFluxo() {
       const alvoPos = posicoes[t.alvo];
       if (!alvoPos) return;
 
-      // pequeno deslocamento vertical se houver mais de um terminal na mesma caixa
-      const k = `${t.tipo}_${t.alvo}`;
+      const ehInicio = t.tipo === "inicio";
+      const lado = t.lado || (ehInicio ? "left" : "right");
+
+      // deslocamento se houver mais de um terminal no mesmo lado da mesma caixa
+      const k = `${lado}_${t.alvo}`;
       const desloc = (usadosPorAlvo[k] || 0);
       usadosPorAlvo[k] = desloc + 1;
-      const dy = desloc * 46;
 
-      const termId = (t.tipo === "inicio" ? "__INI_" : "__FIMX_") + t.id + "__";
-      const ehInicio = t.tipo === "inicio";
+      const gap = CONFIG.entryExitGap;
+      let tx, ty;
+      switch (lado) {
+        case "right":
+          tx = alvoPos.x + alvoPos.w + gap;
+          ty = alvoPos.y + (alvoPos.h - 36) / 2 + desloc * 46;
+          break;
+        case "top":
+          tx = alvoPos.x + (alvoPos.w - 60) / 2 + desloc * 70;
+          ty = alvoPos.y - 36 - gap;
+          break;
+        case "bottom":
+          tx = alvoPos.x + (alvoPos.w - 60) / 2 + desloc * 70;
+          ty = alvoPos.y + alvoPos.h + gap;
+          break;
+        case "left":
+        default:
+          tx = alvoPos.x - 60 - gap;
+          ty = alvoPos.y + (alvoPos.h - 36) / 2 + desloc * 46;
+      }
+
+      const termId = (ehInicio ? "__INI_" : "__FIMX_") + t.id + "__";
+      const gcol = (lado === "right") ? alvoPos.gridCol + 1
+                 : (lado === "left") ? Math.max(0, alvoPos.gridCol - 1)
+                 : alvoPos.gridCol;
 
       posicoes[termId] = {
-        id: termId,
-        x: ehInicio
-            ? alvoPos.x - 60 - CONFIG.entryExitGap
-            : alvoPos.x + alvoPos.w + CONFIG.entryExitGap,
-        y: alvoPos.y + (alvoPos.h - 36) / 2 + dy,
-        w: 60,
-        h: 36,
-        isDecision: false,
-        gridCol: ehInicio ? Math.max(0, alvoPos.gridCol - 1) : alvoPos.gridCol + 1,
-        gridRow: alvoPos.gridRow,
-        gridRowGlobal: alvoPos.gridRowGlobal,
-        area: alvoPos.area
+        id: termId, x: tx, y: ty, w: 60, h: 36, isDecision: false,
+        gridCol: gcol, gridRow: alvoPos.gridRow,
+        gridRowGlobal: alvoPos.gridRowGlobal, area: alvoPos.area
       };
 
       desenharCapsula(svg, ehInicio ? "Início" : "Fim",
@@ -6459,6 +6496,11 @@ function renderPainelRaias() {
       const sel = a.id === inicioAlvo ? " selected" : "";
       return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
     })).join("");
+  const opcFim = [`<option value="">Última atividade (padrão)</option>`]
+    .concat(atividades.map(a => {
+      const sel = a.id === fimOrigem ? " selected" : "";
+      return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
+    })).join("");
 
   const listaTerminais = (terminais || []).map(t => `
     <div class="terminal-item">
@@ -6473,9 +6515,13 @@ function renderPainelRaias() {
         <span class="pop-label">Início conecta em</span>
         <select class="pop-select" onchange="definirInicioAlvo(this.value)">${opcInicio}</select>
       </div>
+      <div class="terminal-linha">
+        <span class="pop-label">Fim vem de</span>
+        <select class="pop-select" onchange="definirFimOrigem(this.value)">${opcFim}</select>
+      </div>
       <div class="terminal-acoes">
-        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('inicio')">+ Início</button>
-        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('fim')">+ Fim</button>
+        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('inicio', event)">+ Início</button>
+        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('fim', event)">+ Fim</button>
       </div>
       ${listaTerminais ? `<div class="terminais-lista">${listaTerminais}</div>` : ""}
     </div>`;
@@ -6488,7 +6534,7 @@ function renderPainelRaias() {
     <div class="raias-lista">${itens}</div>
     ${blocoTerminais}
     <div class="raias-dica">
-      <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao()">+ Nova seta</button>
+      <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao(event)">+ Nova seta</button>
       <span>Clique numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
     </div>
   `;
@@ -6516,7 +6562,7 @@ function resetarAjustesFluxo() {
     (ordemRaias && ordemRaias.length) ||
     (rotulosConexoes && Object.keys(rotulosConexoes).length) ||
     (terminais && terminais.length) ||
-    inicioAlvo ||
+    inicioAlvo || fimOrigem ||
     (Array.isArray(fluxoData) && fluxoData.some(l => l && l.semSaida));
 
   if (!temAjustes) {
@@ -6531,6 +6577,7 @@ function resetarAjustesFluxo() {
   rotulosConexoes = {};
   terminais = [];
   inicioAlvo = "";
+  fimOrigem = "";
   conexaoSelecionada = null;
   // limpa marcações de "sem saída" feitas manualmente
   fluxoData.forEach(l => { if (l) l.semSaida = false; });
@@ -6734,13 +6781,14 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
 }
 
 /* ---------- Criador de nova conexão (formulário flutuante) ---------- */
-function abrirCriadorConexao() {
+function abrirCriadorConexao(ev) {
   const atividades = listaAtividadesSelect();
   if (atividades.length < 2) {
     mostrarToast("É preciso ter ao menos duas atividades para criar uma seta.", "alerta");
     return;
   }
 
+  mostrarBackdropEditor();
   let box = document.getElementById("criadorConexao");
   if (!box) {
     box = document.createElement("div");
@@ -6782,9 +6830,7 @@ function abrirCriadorConexao() {
   const selDest = box.querySelector("#novaConexaoDestino");
   if (atividades.length > 1) selDest.selectedIndex = 1;
 
-  box.style.display = "block";
-  box.style.left = Math.max(10, (window.innerWidth - (box.offsetWidth || 260)) / 2) + "px";
-  box.style.top = "90px";
+  posicionarFlutuante(box, ev);
 }
 
 function confirmarCriarConexao() {
@@ -6798,6 +6844,7 @@ function confirmarCriarConexao() {
 function fecharCriadorConexao() {
   const box = document.getElementById("criadorConexao");
   if (box) box.style.display = "none";
+  esconderBackdropEditor();
 }
 
 /* =====================================================================
@@ -6814,13 +6861,25 @@ function definirInicioAlvo(idVisual) {
   );
 }
 
-function adicionarTerminal(tipo, alvoIdVisual) {
+function definirFimOrigem(idVisual) {
+  fimOrigem = idVisual || "";
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  mostrarToast(
+    fimOrigem ? `Fim agora vem de ${fimOrigem}.` : "Fim voltou para a última atividade.",
+    "ok"
+  );
+}
+
+function adicionarTerminal(tipo, alvoIdVisual, lado) {
   const { visualParaUid } = mapaIdVisualUid();
   if (!visualParaUid[alvoIdVisual]) {
     mostrarToast("Selecione uma atividade válida.", "alerta");
     return;
   }
-  terminais.push({ id: `T${terminalCounter++}`, tipo, alvo: alvoIdVisual });
+  const ladoFinal = ["top", "right", "bottom", "left"].includes(lado)
+    ? lado : (tipo === "inicio" ? "left" : "right");
+  terminais.push({ id: `T${terminalCounter++}`, tipo, alvo: alvoIdVisual, lado: ladoFinal });
   fecharCriadorTerminal();
   salvarEstadoLocal(true);
   gerarFluxo();
@@ -6835,13 +6894,14 @@ function removerTerminal(id) {
 }
 
 /* Formulário flutuante para criar um terminal Início/Fim extra */
-function abrirCriadorTerminal(tipo) {
+function abrirCriadorTerminal(tipo, ev) {
   const atividades = listaAtividadesSelect();
   if (!atividades.length) {
     mostrarToast("Crie atividades antes de adicionar terminais.", "alerta");
     return;
   }
 
+  mostrarBackdropEditor();
   let box = document.getElementById("criadorTerminal");
   if (!box) {
     box = document.createElement("div");
@@ -6855,6 +6915,10 @@ function abrirCriadorTerminal(tipo) {
 
   const titulo = tipo === "inicio" ? "Novo Início" : "Novo Fim";
   const label = tipo === "inicio" ? "Conectar o Início em" : "Trazer o Fim a partir de";
+  const ladoPadrao = tipo === "inicio" ? "left" : "right";
+  const ladoOpts = [
+    ["left", "Esquerda"], ["right", "Direita"], ["top", "Acima"], ["bottom", "Abaixo"]
+  ].map(([v, t]) => `<option value="${v}"${v === ladoPadrao ? " selected" : ""}>${t}</option>`).join("");
 
   box.innerHTML = `
     <div class="pop-header">
@@ -6865,22 +6929,69 @@ function abrirCriadorTerminal(tipo) {
       <div class="pop-label">${label}</div>
       <select id="novoTerminalAlvo" class="pop-select">${opcoes}</select>
     </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Posição em relação à caixa</div>
+      <select id="novoTerminalLado" class="pop-select">${ladoOpts}</select>
+    </div>
     <div class="pop-rodape pop-rodape-acoes">
       <button type="button" class="pop-criar" onclick="confirmarCriarTerminal('${tipo}')">Adicionar</button>
     </div>
   `;
-  box.style.display = "block";
-  box.style.left = Math.max(10, (window.innerWidth - (box.offsetWidth || 280)) / 2) + "px";
-  box.style.top = "90px";
+  posicionarFlutuante(box, ev);
 }
 
 function confirmarCriarTerminal(tipo) {
   const sel = document.getElementById("novoTerminalAlvo");
+  const ladoSel = document.getElementById("novoTerminalLado");
   if (!sel) return;
-  adicionarTerminal(tipo, sel.value);
+  adicionarTerminal(tipo, sel.value, ladoSel ? ladoSel.value : undefined);
 }
 
 function fecharCriadorTerminal() {
   const box = document.getElementById("criadorTerminal");
   if (box) box.style.display = "none";
+  esconderBackdropEditor();
+}
+
+/* ---------- Apoio: fundo escurecido + posicionamento dos formulários ---------- */
+function mostrarBackdropEditor() {
+  let bd = document.getElementById("editorBackdrop");
+  if (!bd) {
+    bd = document.createElement("div");
+    bd.id = "editorBackdrop";
+    bd.addEventListener("click", () => {
+      fecharCriadorTerminal();
+      fecharCriadorConexao();
+    });
+    document.body.appendChild(bd);
+  }
+  bd.classList.add("show");
+}
+
+function esconderBackdropEditor() {
+  const bd = document.getElementById("editorBackdrop");
+  const t = document.getElementById("criadorTerminal");
+  const c = document.getElementById("criadorConexao");
+  const algumAberto =
+    (t && t.style.display === "block") || (c && c.style.display === "block");
+  if (bd && !algumAberto) bd.classList.remove("show");
+}
+
+function posicionarFlutuante(box, ev) {
+  box.style.display = "block";
+  const larg = box.offsetWidth || 300;
+  const alt = box.offsetHeight || 220;
+  const margem = 12;
+  let px, py;
+  if (ev && typeof ev.clientX === "number") {
+    px = ev.clientX + 14;
+    py = ev.clientY + 14;
+  } else {
+    px = (window.innerWidth - larg) / 2;
+    py = 110;
+  }
+  if (px + larg + margem > window.innerWidth) px = window.innerWidth - larg - margem;
+  if (py + alt + margem > window.innerHeight) py = window.innerHeight - alt - margem;
+  box.style.left = Math.max(margem, px) + "px";
+  box.style.top = Math.max(margem, py) + "px";
 }
