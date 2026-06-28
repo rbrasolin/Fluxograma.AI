@@ -21,6 +21,7 @@ let rotulosConexoes = {};     // chave "origemId__destinoId" -> "Sim" | "Não" |
 let terminais = [];           // [{ id, tipo:'inicio'|'fim', alvo: idVisual }]
 let inicioAlvo = "";          // idVisual da caixa onde o Início padrão conecta ("" = primeira)
 let fimOrigem = "";           // idVisual da caixa de onde o Fim padrão vem ("" = última)
+let inicioOculto = false;     // esconde o Início padrão e sua seta
 let terminalCounter = 1;
 
 const STORAGE_KEY = "gerador_fluxograma_estado_v1";
@@ -66,7 +67,8 @@ function obterEstadoAtual() {
     rotulosConexoes: rotulosConexoes && typeof rotulosConexoes === "object" ? rotulosConexoes : {},
     terminais: Array.isArray(terminais) ? [...terminais] : [],
     inicioAlvo: inicioAlvo || "",
-    fimOrigem: fimOrigem || ""
+    fimOrigem: fimOrigem || "",
+    inicioOculto: !!inicioOculto
   };
 }
 
@@ -173,6 +175,7 @@ function restaurarEstadoLocal() {
     terminais = Array.isArray(estado.terminais) ? estado.terminais : [];
     inicioAlvo = estado.inicioAlvo || "";
     fimOrigem = estado.fimOrigem || "";
+    inicioOculto = !!estado.inicioOculto;
     terminalCounter = (terminais.reduce((m, t) => {
       const n = parseInt(String(t.id).replace(/\D/g, ""), 10) || 0;
       return Math.max(m, n);
@@ -4627,8 +4630,30 @@ function gerarFluxo() {
     area: origemFimPos.area
   };
 
-  desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
-  desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
+  // Há alguma conexão chegando ao Fim padrão?
+  const algumaVaiAoFim = etapas.some((e) => {
+    const temDest =
+      quebrarListaIds(e.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(e.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(e.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length;
+    return !temDest && !e.semSaida;
+  });
+  const fimTemOrigemPropria = !!(fimOrigem && posicoes[fimOrigem] && (() => {
+    const lf = etapas.find(e => e.id === fimOrigem);
+    return lf && (
+      quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length
+    );
+  })());
+  const haConexaoAoFim = algumaVaiAoFim || fimTemOrigemPropria;
+
+  if (!inicioOculto) {
+    desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
+  }
+  if (haConexaoAoFim) {
+    desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
+  }
 
   etapas.forEach((etapa) => {
     desenharNo(svg, etapa, posicoes[etapa.id]);
@@ -4641,16 +4666,18 @@ function gerarFluxo() {
   const sharedRegistry = {};
   const routeRegistry = [];
 
-  desenharConexao(
-    svg,
-    posicoes["__INICIO__"],
-    posicoes[inicioAlvoId],
-    "",
-    0,
-    posicoes,
-    sharedRegistry,
-    routeRegistry
-  );
+  if (!inicioOculto) {
+    desenharConexao(
+      svg,
+      posicoes["__INICIO__"],
+      posicoes[inicioAlvoId],
+      "",
+      0,
+      posicoes,
+      sharedRegistry,
+      routeRegistry
+    );
+  }
 
   etapas.forEach((etapa) => {
     const origem = posicoes[etapa.id];
@@ -5298,8 +5325,29 @@ function gerarFluxoExcel() {
     area: etapaFimEx.area || "Sem Área"
   };
 
-  desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
-  desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
+  const algumaVaiAoFimEx = etapas.some((e) => {
+    const temDest =
+      quebrarListaIds(e.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(e.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(e.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length;
+    return !temDest && !e.semSaida;
+  });
+  const fimTemOrigemPropriaEx = !!(fimOrigem && posicoes[fimOrigem] && (() => {
+    const lf = etapas.find(e => e.id === fimOrigem);
+    return lf && (
+      quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length
+    );
+  })());
+  const haConexaoAoFimEx = algumaVaiAoFimEx || fimTemOrigemPropriaEx;
+
+  if (!inicioOculto) {
+    desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
+  }
+  if (haConexaoAoFimEx) {
+    desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
+  }
 
   etapas.forEach((etapa) => {
     desenharNoExcel(svg, etapa, posicoes[etapa.id]);
@@ -5308,16 +5356,18 @@ function gerarFluxoExcel() {
   const sharedRegistry = {};
   const routeRegistry = [];
 
-  desenharConexaoExcel(
-    svg,
-    posicoes["__INICIO__"],
-    posicoes[inicioAlvoIdEx],
-    "",
-    0,
-    posicoes,
-    sharedRegistry,
-    routeRegistry
-  );
+  if (!inicioOculto) {
+    desenharConexaoExcel(
+      svg,
+      posicoes["__INICIO__"],
+      posicoes[inicioAlvoIdEx],
+      "",
+      0,
+      posicoes,
+      sharedRegistry,
+      routeRegistry
+    );
+  }
 
   etapas.forEach((etapa) => {
     const origem = posicoes[etapa.id];
@@ -6506,7 +6556,8 @@ function renderPopoverConexao() {
   const acoesRodape = estrutural
     ? `<button type="button" class="pop-apagar" onclick="apagarConexao('${origemId}','${destinoId}')">Apagar seta</button>
        <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`
-    : `<button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`;
+    : `<button type="button" class="pop-apagar" onclick="apagarSetaTerminal('${origemId}','${destinoId}')">Apagar seta</button>
+       <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`;
 
   pop.innerHTML = `
     <div class="pop-header">
@@ -6684,7 +6735,7 @@ function resetarAjustesFluxo() {
     (ordemRaias && ordemRaias.length) ||
     (rotulosConexoes && Object.keys(rotulosConexoes).length) ||
     (terminais && terminais.length) ||
-    inicioAlvo || fimOrigem ||
+    inicioAlvo || fimOrigem || inicioOculto ||
     (Array.isArray(fluxoData) && fluxoData.some(l => l && l.semSaida));
 
   if (!temAjustes) {
@@ -6700,6 +6751,7 @@ function resetarAjustesFluxo() {
   terminais = [];
   inicioAlvo = "";
   fimOrigem = "";
+  inicioOculto = false;
   conexaoSelecionada = null;
   // limpa marcações de "sem saída" feitas manualmente
   fluxoData.forEach(l => { if (l) l.semSaida = false; });
@@ -6852,6 +6904,37 @@ function apagarConexao(origemVisual, destinoVisual) {
   fecharPopoverConexao();
   persistirEdicaoEstrutural();
   mostrarToast("Seta removida.", "ok");
+}
+
+/* Excluir setas de terminais (Início/Fim padrão e adicionais) */
+function apagarSetaTerminal(origemId, destinoId) {
+  if (destinoId === "__FIM__") {
+    // caixa -> Fim automático: marca a caixa como "sem saída de propósito"
+    const { visualParaUid } = mapaIdVisualUid();
+    const uid = visualParaUid[origemId];
+    const linha = fluxoData.find(l => l.uid === uid);
+    if (linha) linha.semSaida = true;
+  } else if (origemId === "__INICIO__") {
+    // Início padrão -> caixa: esconde o Início padrão
+    inicioOculto = true;
+  } else if (typeof origemId === "string" && origemId.startsWith("__INI_")) {
+    // terminal Início adicional
+    const tid = origemId.slice(6, -2);
+    terminais = terminais.filter(t => t.id !== tid);
+  } else if (typeof destinoId === "string" && destinoId.startsWith("__FIMX_")) {
+    // terminal Fim adicional
+    const tid = destinoId.slice(7, -2);
+    terminais = terminais.filter(t => t.id !== tid);
+  } else {
+    mostrarToast("Essa seta não pode ser removida por aqui.", "alerta");
+    return;
+  }
+
+  delete overridesConexoes[chaveOverride(origemId, destinoId)];
+  fecharPopoverConexao();
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  mostrarToast("Seta removida. Você já pode criar uma nova (Sim/Não) com o + Nova seta.", "ok");
 }
 
 function criarConexao(origemVisual, destinoVisual, tipo) {
