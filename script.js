@@ -4837,9 +4837,9 @@ function gerarFluxo() {
         posicoes[termId].x, posicoes[termId].y, 60, 36);
 
       if (ehInicio) {
-        desenharConexao(svg, posicoes[termId], alvoPos, "", 0, posicoes, sharedRegistry, routeRegistry);
+        desenharConexao(svg, posicoes[termId], alvoPos, rotuloConexaoFinal(termId, t.alvo, ""), 0, posicoes, sharedRegistry, routeRegistry);
       } else {
-        desenharConexao(svg, alvoPos, posicoes[termId], "", 0, posicoes, sharedRegistry, routeRegistry);
+        desenharConexao(svg, alvoPos, posicoes[termId], rotuloConexaoFinal(t.alvo, termId, ""), 0, posicoes, sharedRegistry, routeRegistry);
       }
     });
   }
@@ -5485,9 +5485,9 @@ function gerarFluxoExcel() {
       };
       desenharCapsula(svg, ehInicio ? "Início" : "Fim", tx, tcy - H / 2, W, H);
       if (ehInicio) {
-        desenharConexaoExcel(svg, posicoes[termId], alvoPos, "", 0, posicoes, sharedRegistry, routeRegistry);
+        desenharConexaoExcel(svg, posicoes[termId], alvoPos, rotuloConexaoFinal(termId, t.alvo, ""), 0, posicoes, sharedRegistry, routeRegistry);
       } else {
-        desenharConexaoExcel(svg, alvoPos, posicoes[termId], "", 0, posicoes, sharedRegistry, routeRegistry);
+        desenharConexaoExcel(svg, alvoPos, posicoes[termId], rotuloConexaoFinal(t.alvo, termId, ""), 0, posicoes, sharedRegistry, routeRegistry);
       }
       larguraFinal = Math.max(larguraFinal, tx + W + 4);
       alturaFinal = Math.max(alturaFinal, tcy + H / 2 + 4);
@@ -6707,6 +6707,7 @@ function renderPainelRaias() {
     <div class="raias-lista">${itens}</div>
     ${blocoTerminais}
     <div class="raias-dica">
+      <button type="button" class="btn-nova-seta" onclick="abrirCriadorCaixa(event)">+ Nova caixa</button>
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao(event)">+ Nova seta</button>
       <span>Clique numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
     </div>
@@ -7076,7 +7077,7 @@ function definirFimOrigem(idVisual) {
   );
 }
 
-function adicionarTerminal(tipo, alvoIdVisual, lado) {
+function adicionarTerminal(tipo, alvoIdVisual, lado, rotulo) {
   const { visualParaUid } = mapaIdVisualUid();
   if (!visualParaUid[alvoIdVisual]) {
     mostrarToast("Selecione uma atividade válida.", "alerta");
@@ -7084,7 +7085,18 @@ function adicionarTerminal(tipo, alvoIdVisual, lado) {
   }
   const ladoFinal = ["top", "right", "bottom", "left"].includes(lado)
     ? lado : (tipo === "inicio" ? "left" : "right");
-  terminais.push({ id: `T${terminalCounter++}`, tipo, alvo: alvoIdVisual, lado: ladoFinal });
+  const novoId = `T${terminalCounter++}`;
+  terminais.push({ id: novoId, tipo, alvo: alvoIdVisual, lado: ladoFinal });
+
+  // Rótulo da seta do terminal (sem rótulo / Sim / Não)
+  if (rotulo === "sim" || rotulo === "nao") {
+    const termId = (tipo === "inicio" ? "__INI_" : "__FIMX_") + novoId + "__";
+    const chave = tipo === "inicio"
+      ? chaveOverride(termId, alvoIdVisual)
+      : chaveOverride(alvoIdVisual, termId);
+    rotulosConexoes[chave] = rotulo === "sim" ? "Sim" : "Não";
+  }
+
   fecharCriadorTerminal();
   salvarEstadoLocal(true);
   gerarFluxo();
@@ -7138,6 +7150,14 @@ function abrirCriadorTerminal(tipo, ev) {
       <div class="pop-label">Posição em relação à caixa</div>
       <select id="novoTerminalLado" class="pop-select">${ladoOpts}</select>
     </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Tipo da seta</div>
+      <select id="novoTerminalRotulo" class="pop-select">
+        <option value="extra">Conexão sem rótulo</option>
+        <option value="sim">Saída com "Sim"</option>
+        <option value="nao">Saída com "Não"</option>
+      </select>
+    </div>
     <div class="pop-rodape pop-rodape-acoes">
       <button type="button" class="pop-criar" onclick="confirmarCriarTerminal('${tipo}')">Adicionar</button>
     </div>
@@ -7148,8 +7168,9 @@ function abrirCriadorTerminal(tipo, ev) {
 function confirmarCriarTerminal(tipo) {
   const sel = document.getElementById("novoTerminalAlvo");
   const ladoSel = document.getElementById("novoTerminalLado");
+  const rotSel = document.getElementById("novoTerminalRotulo");
   if (!sel) return;
-  adicionarTerminal(tipo, sel.value, ladoSel ? ladoSel.value : undefined);
+  adicionarTerminal(tipo, sel.value, ladoSel ? ladoSel.value : undefined, rotSel ? rotSel.value : undefined);
 }
 
 function fecharCriadorTerminal() {
@@ -7167,6 +7188,7 @@ function mostrarBackdropEditor() {
     bd.addEventListener("click", () => {
       fecharCriadorTerminal();
       fecharCriadorConexao();
+      fecharCriadorCaixa();
     });
     document.body.appendChild(bd);
   }
@@ -7177,8 +7199,11 @@ function esconderBackdropEditor() {
   const bd = document.getElementById("editorBackdrop");
   const t = document.getElementById("criadorTerminal");
   const c = document.getElementById("criadorConexao");
+  const cx = document.getElementById("criadorCaixa");
   const algumAberto =
-    (t && t.style.display === "block") || (c && c.style.display === "block");
+    (t && t.style.display === "block") ||
+    (c && c.style.display === "block") ||
+    (cx && cx.style.display === "block");
   if (bd && !algumAberto) bd.classList.remove("show");
 }
 
@@ -7211,4 +7236,181 @@ function posicionarFlutuante(box, ev) {
   if (py + alt + margem > window.innerHeight) py = window.innerHeight - alt - margem;
   box.style.left = Math.max(margem, px) + "px";
   box.style.top = Math.max(margem, py) + "px";
+}
+
+/* =====================================================================
+   ONDA 2.7 — Inserir nova caixa (atividade/decisão) pelo desenho
+===================================================================== */
+
+/* Lista de conexões existentes (para "inserir no meio") */
+function listaConexoesExistentes() {
+  const { uidParaVisual } = mapaIdVisualUid();
+  const itens = [];
+  fluxoData.forEach((l) => {
+    if (limpar(l.atividade || "") === "") return;
+    const oVis = uidParaVisual[l.uid];
+    if (!oVis) return;
+    const add = (dUid) => {
+      const dVis = uidParaVisual[dUid];
+      if (!dVis) return;
+      itens.push({
+        value: `${oVis}__${dVis}`,
+        label: `${oVis} · ${descricaoNo(oVis)} → ${dVis} · ${descricaoNo(dVis)}`
+      });
+    };
+    if (l.proxSim) add(l.proxSim);
+    if (l.proxNao) add(l.proxNao);
+    (l.extras || []).forEach(add);
+  });
+  return itens;
+}
+
+function inserirNovaCaixa(opts) {
+  const tipo = opts.tipo === "decisao" ? "decisao" : "atividade";
+  const atividade = limpar(opts.atividade || "");
+  const area = opts.area || "";
+  const col = Math.max(1, Number(opts.coluna) || 1);
+  const lin = Math.max(1, Number(opts.linha) || 1);
+
+  if (!atividade) { mostrarToast("Informe o texto da atividade.", "alerta"); return; }
+  if (!area) { mostrarToast("Escolha a raia (área).", "alerta"); return; }
+
+  // Empurra +1 todas as caixas com coluna >= col (em todas as raias) e fixa manual.
+  fluxoData.forEach((l) => {
+    if (limpar(l.atividade || "") === "") return;
+    if ((Number(l.coluna) || 1) >= col) {
+      l.coluna = (Number(l.coluna) || 1) + 1;
+      l.colunaManual = true;
+    }
+  });
+
+  const novoUid = gerarUID();
+  const nova = {
+    uid: novoUid, ordem: 0, id: "",
+    area, atividade,
+    tipo: tipo === "decisao" ? "Decisão" : "",
+    sistema: "", tempo: "",
+    coluna: col, linha: lin, colunaManual: true, linhaManual: true,
+    cor: "white",
+    proxSim: "", proxSimAuto: false, proxNao: "", extras: [], semSaida: false
+  };
+  fluxoData.push(nova);
+
+  // Conexão "no meio de uma seta existente": origem→destino vira origem→nova→destino
+  if (opts.inserirEntre && opts.inserirEntre.includes("__")) {
+    const [oVis, dVis] = opts.inserirEntre.split("__");
+    const mapa = mapaIdVisualUid();
+    const oUid = mapa.visualParaUid[oVis];
+    const dUid = mapa.visualParaUid[dVis];
+    const origemLinha = fluxoData.find(l => l.uid === oUid);
+    if (origemLinha && dUid) {
+      // redireciona a saída origem→destino para origem→nova (mantém o slot Sim/Não)
+      if (origemLinha.proxSim === dUid) origemLinha.proxSim = novoUid;
+      else if (origemLinha.proxNao === dUid) origemLinha.proxNao = novoUid;
+      else if (Array.isArray(origemLinha.extras)) {
+        const i = origemLinha.extras.indexOf(dUid);
+        if (i !== -1) origemLinha.extras[i] = novoUid;
+      }
+      nova.proxSim = dUid;        // nova → destino
+      origemLinha.semSaida = false;
+
+      // transfere rótulo/override da seta antiga para o novo trecho origem→nova
+      const novaVis = mapa.uidParaVisual[novoUid];
+      const chaveAntiga = chaveOverride(oVis, dVis);
+      const chaveNova = chaveOverride(oVis, novaVis);
+      if (rotulosConexoes[chaveAntiga] !== undefined) {
+        rotulosConexoes[chaveNova] = rotulosConexoes[chaveAntiga];
+        delete rotulosConexoes[chaveAntiga];
+      }
+      delete overridesConexoes[chaveAntiga];
+    }
+  }
+
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+  mostrarToast(`Caixa "${atividade}" inserida na coluna ${col}.`, "ok");
+}
+
+/* ---------- Formulário flutuante de Nova caixa ---------- */
+function abrirCriadorCaixa(ev) {
+  const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
+    ? ultimasAreasOrdenadas
+    : Array.from(new Set(fluxoData.map(l => l.area).filter(a => limpar(a || "") !== "")));
+  if (!areas.length) {
+    mostrarToast("Crie ao menos uma atividade/raia antes de inserir caixas.", "alerta");
+    return;
+  }
+
+  mostrarBackdropEditor();
+  let box = document.getElementById("criadorCaixa");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "criadorCaixa";
+    document.body.appendChild(box);
+  }
+
+  const optAreas = areas.map(a => `<option value="${escaparHTML(a)}">${escaparHTML(a)}</option>`).join("");
+  const conex = listaConexoesExistentes();
+  const optConex = [`<option value="">Deixar solta (conecto depois)</option>`]
+    .concat(conex.map(c => `<option value="${escaparHTML(c.value)}">${escaparHTML(c.label)}</option>`))
+    .join("");
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Nova caixa</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharCriadorCaixa()">✕</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Tipo</div>
+      <select id="novaCaixaTipo" class="pop-select">
+        <option value="atividade">Atividade</option>
+        <option value="decisao">Decisão</option>
+      </select>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Texto da atividade</div>
+      <input type="text" id="novaCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Raia (área)</div>
+      <select id="novaCaixaArea" class="pop-select">${optAreas}</select>
+    </div>
+    <div class="pop-grupo pop-grupo-linha">
+      <div>
+        <div class="pop-label">Coluna</div>
+        <input type="number" id="novaCaixaColuna" class="pop-select" min="1" value="1" />
+      </div>
+      <div>
+        <div class="pop-label">Linha</div>
+        <input type="number" id="novaCaixaLinha" class="pop-select" min="1" value="1" />
+      </div>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Conexão</div>
+      <select id="novaCaixaEntre" class="pop-select">${optConex}</select>
+    </div>
+    <div class="pop-rodape pop-rodape-acoes">
+      <button type="button" class="pop-criar" onclick="confirmarCriarCaixa()">Inserir caixa</button>
+    </div>
+  `;
+  posicionarFlutuante(box, ev);
+}
+
+function confirmarCriarCaixa() {
+  inserirNovaCaixa({
+    tipo: (document.getElementById("novaCaixaTipo") || {}).value,
+    atividade: (document.getElementById("novaCaixaTexto") || {}).value,
+    area: (document.getElementById("novaCaixaArea") || {}).value,
+    coluna: (document.getElementById("novaCaixaColuna") || {}).value,
+    linha: (document.getElementById("novaCaixaLinha") || {}).value,
+    inserirEntre: (document.getElementById("novaCaixaEntre") || {}).value
+  });
+  fecharCriadorCaixa();
+}
+
+function fecharCriadorCaixa() {
+  const box = document.getElementById("criadorCaixa");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
 }
