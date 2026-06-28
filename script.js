@@ -4437,12 +4437,35 @@ function gerarFluxo() {
     maxColuna * colSlotWidth +
     (maxColuna - 1) * CONFIG.colGap;
 
+  // Reserva de espaço para terminais Início/Fim posicionados ACIMA/ABAIXO,
+  // para que a raia do alvo cresça e o terminal fique dentro dela.
+  const reservaTerminal = 36 + CONFIG.entryExitGap + 12;
+  const extraTopArea = {};
+  const extraBottomArea = {};
+  if (Array.isArray(terminais) && terminais.length) {
+    const etapaPorIdLocal = {};
+    etapas.forEach((e) => { etapaPorIdLocal[e.id] = e; });
+    terminais.forEach((t) => {
+      const alvo = etapaPorIdLocal[t.alvo];
+      if (!alvo) return;
+      const area = alvo.area || "Sem Área";
+      const lado = t.lado || (t.tipo === "inicio" ? "left" : "right");
+      if (lado === "top" && (alvo.linha || 1) === 1) {
+        extraTopArea[area] = Math.max(extraTopArea[area] || 0, reservaTerminal);
+      } else if (lado === "bottom" && (alvo.linha || 1) === (linhasPorArea[area] || 1)) {
+        extraBottomArea[area] = Math.max(extraBottomArea[area] || 0, reservaTerminal);
+      }
+    });
+  }
+
   const lanes = {};
   let cursorY = CONFIG.marginY;
   let rowOffsetGlobal = 0;
 
   areasOrdenadas.forEach((nome) => {
     const qtdLinhas = linhasPorArea[nome] || 1;
+    const extraTop = extraTopArea[nome] || 0;
+    const extraBottom = extraBottomArea[nome] || 0;
 
     const contentHeight =
       qtdLinhas * rowSlotHeight +
@@ -4450,7 +4473,9 @@ function gerarFluxo() {
 
     const laneHeight =
       CONFIG.lanePaddingTop +
+      extraTop +
       contentHeight +
+      extraBottom +
       CONFIG.lanePaddingBottom;
 
     lanes[nome] = {
@@ -4459,7 +4484,7 @@ function gerarFluxo() {
       width: CONFIG.laneLabelWidth + CONFIG.laneEntryWidth + laneContentWidth,
       height: laneHeight,
       contentX: CONFIG.marginX + CONFIG.laneLabelWidth + CONFIG.laneEntryWidth,
-      contentY: cursorY + CONFIG.lanePaddingTop,
+      contentY: cursorY + CONFIG.lanePaddingTop + extraTop,
       rows: qtdLinhas,
       rowOffsetGlobalStart: rowOffsetGlobal
     };
@@ -6978,18 +7003,30 @@ function esconderBackdropEditor() {
 }
 
 function posicionarFlutuante(box, ev) {
+  // Garante o comportamento mesmo se o CSS não tiver carregado (cache):
+  box.style.position = "fixed";
+  box.style.zIndex = "10001";
   box.style.display = "block";
+
   const larg = box.offsetWidth || 300;
-  const alt = box.offsetHeight || 220;
+  const alt = box.offsetHeight || 240;
   const margem = 12;
   let px, py;
-  if (ev && typeof ev.clientX === "number") {
+
+  const btn = ev && (ev.currentTarget || ev.target);
+  if (btn && btn.getBoundingClientRect) {
+    const r = btn.getBoundingClientRect();
+    px = r.left;
+    py = r.bottom + 8; // logo abaixo do botão clicado
+  } else if (ev && typeof ev.clientX === "number") {
     px = ev.clientX + 14;
     py = ev.clientY + 14;
   } else {
     px = (window.innerWidth - larg) / 2;
     py = 110;
   }
+
+  // mantém dentro da área visível
   if (px + larg + margem > window.innerWidth) px = window.innerWidth - larg - margem;
   if (py + alt + margem > window.innerHeight) py = window.innerHeight - alt - margem;
   box.style.left = Math.max(margem, px) + "px";
