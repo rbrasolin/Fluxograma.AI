@@ -5113,10 +5113,38 @@ function gerarFluxoExcel() {
   let rowOffsetGlobal = 0;
   const lanesBase = [];
 
+  // Reserva para terminais Início/Fim acima/abaixo (espelha a visão online).
+  // Sem terminais, os valores ficam 0 e o layout é idêntico ao atual.
+  const reservaTerminalEx = 36 + (EXCEL_LAYOUT.startGap || 24) + 12;
+  const extraTopAreaEx = {};
+  const extraBottomAreaEx = {};
+  if (Array.isArray(terminais) && terminais.length) {
+    const linhasMaxPorAreaEx = {};
+    etapas.forEach(e => {
+      const a = e.area || "Sem Área";
+      linhasMaxPorAreaEx[a] = Math.max(linhasMaxPorAreaEx[a] || 1, e.linha || 1);
+    });
+    const etapaPorIdEx = {};
+    etapas.forEach(e => { etapaPorIdEx[e.id] = e; });
+    terminais.forEach(t => {
+      const alvo = etapaPorIdEx[t.alvo];
+      if (!alvo) return;
+      const a = alvo.area || "Sem Área";
+      const lado = t.lado || (t.tipo === "inicio" ? "left" : "right");
+      if (lado === "top" && (alvo.linha || 1) === 1) {
+        extraTopAreaEx[a] = Math.max(extraTopAreaEx[a] || 0, reservaTerminalEx);
+      } else if (lado === "bottom" && (alvo.linha || 1) === (linhasMaxPorAreaEx[a] || 1)) {
+        extraBottomAreaEx[a] = Math.max(extraBottomAreaEx[a] || 0, reservaTerminalEx);
+      }
+    });
+  }
+
   areasOrdenadas.forEach((nomeArea) => {
     const etapasArea = etapas.filter(e => (e.area || "Sem Área") === nomeArea);
     const maxLinhaArea = Math.max(...etapasArea.map(e => e.linha), 1);
     const qtdLinhas = maxLinhaArea;
+    const extraTop = extraTopAreaEx[nomeArea] || 0;
+    const extraBottom = extraBottomAreaEx[nomeArea] || 0;
 
     const contentHeight =
       qtdLinhas * rowSlotHeight +
@@ -5124,7 +5152,9 @@ function gerarFluxoExcel() {
 
     const laneHeight =
       EXCEL_LAYOUT.lanePaddingTop +
+      extraTop +
       contentHeight +
+      extraBottom +
       EXCEL_LAYOUT.lanePaddingBottom;
 
     lanesBase.push({
@@ -5132,6 +5162,7 @@ function gerarFluxoExcel() {
       y: cursorY,
       height: laneHeight,
       contentHeight,
+      extraTop,
       rows: qtdLinhas,
       rowOffsetGlobalStart: rowOffsetGlobal
     });
@@ -5153,7 +5184,7 @@ function gerarFluxoExcel() {
     width: laneLabelWidthExcel + EXCEL_LAYOUT.laneEntryWidth + EXCEL_LAYOUT.laneTextOffsetLeft + laneContentWidth,
     height: base.height,
     contentX: EXCEL_LAYOUT.extraLeftPadding + laneLabelWidthExcel + EXCEL_LAYOUT.laneEntryWidth + EXCEL_LAYOUT.laneTextOffsetLeft,
-    contentY: base.y + EXCEL_LAYOUT.lanePaddingTop,
+    contentY: base.y + EXCEL_LAYOUT.lanePaddingTop + (base.extraTop || 0),
     contentHeight: base.contentHeight,
     rows: base.rows,
     rowOffsetGlobalStart: base.rowOffsetGlobalStart,
@@ -5218,45 +5249,53 @@ function gerarFluxoExcel() {
   const ultimaEtapa = etapas[etapas.length - 1];
   const primeiraPos = posicoes[primeiraEtapa.id];
   const ultimaPos = posicoes[ultimaEtapa.id];
-  const lanePrimeira = laneByArea[primeiraEtapa.area || "Sem Área"];
-  const laneUltima = laneByArea[ultimaEtapa.area || "Sem Área"];
+
+  // Caixa-alvo do Início e caixa-origem do Fim (padrão = primeira/última).
+  const inicioAlvoIdEx = (inicioAlvo && posicoes[inicioAlvo]) ? inicioAlvo : primeiraEtapa.id;
+  const fimOrigemIdEx = (fimOrigem && posicoes[fimOrigem]) ? fimOrigem : ultimaEtapa.id;
+  const etapaInicioEx = etapas.find(e => e.id === inicioAlvoIdEx) || primeiraEtapa;
+  const etapaFimEx = etapas.find(e => e.id === fimOrigemIdEx) || ultimaEtapa;
+  const posInicioEx = posicoes[inicioAlvoIdEx];
+  const posFimEx = posicoes[fimOrigemIdEx];
+  const lanePrimeira = laneByArea[etapaInicioEx.area || "Sem Área"];
+  const laneUltima = laneByArea[etapaFimEx.area || "Sem Área"];
 
   posicoes["__INICIO__"] = {
     id: "__INICIO__",
-    x: primeiraPos.x - 60 - EXCEL_LAYOUT.startGap,
-    y: primeiraPos.cy - 18,
+    x: posInicioEx.x - 60 - EXCEL_LAYOUT.startGap,
+    y: posInicioEx.cy - 18,
     w: 60,
     h: 36,
-    cx: primeiraPos.x - EXCEL_LAYOUT.startGap - 30,
-    cy: primeiraPos.cy,
-    top: primeiraPos.cy - 18,
-    bottom: primeiraPos.cy + 18,
-    left: primeiraPos.x - 60 - EXCEL_LAYOUT.startGap,
-    right: primeiraPos.x - EXCEL_LAYOUT.startGap,
+    cx: posInicioEx.x - EXCEL_LAYOUT.startGap - 30,
+    cy: posInicioEx.cy,
+    top: posInicioEx.cy - 18,
+    bottom: posInicioEx.cy + 18,
+    left: posInicioEx.x - 60 - EXCEL_LAYOUT.startGap,
+    right: posInicioEx.x - EXCEL_LAYOUT.startGap,
     isDecision: false,
     gridCol: 0,
-    gridRow: primeiraEtapa.linha,
-    gridRowGlobal: lanePrimeira.rowOffsetGlobalStart + primeiraEtapa.linha,
-    area: primeiraEtapa.area || "Sem Área"
+    gridRow: etapaInicioEx.linha,
+    gridRowGlobal: lanePrimeira.rowOffsetGlobalStart + etapaInicioEx.linha,
+    area: etapaInicioEx.area || "Sem Área"
   };
 
   posicoes["__FIM__"] = {
     id: "__FIM__",
-    x: ultimaPos.x + ultimaPos.w + EXCEL_LAYOUT.endGap,
-    y: ultimaPos.cy - 18,
+    x: posFimEx.x + posFimEx.w + EXCEL_LAYOUT.endGap,
+    y: posFimEx.cy - 18,
     w: 60,
     h: 36,
-    cx: ultimaPos.x + ultimaPos.w + EXCEL_LAYOUT.endGap + 30,
-    cy: ultimaPos.cy,
-    top: ultimaPos.cy - 18,
-    bottom: ultimaPos.cy + 18,
-    left: ultimaPos.x + ultimaPos.w + EXCEL_LAYOUT.endGap,
-    right: ultimaPos.x + ultimaPos.w + EXCEL_LAYOUT.endGap + 60,
+    cx: posFimEx.x + posFimEx.w + EXCEL_LAYOUT.endGap + 30,
+    cy: posFimEx.cy,
+    top: posFimEx.cy - 18,
+    bottom: posFimEx.cy + 18,
+    left: posFimEx.x + posFimEx.w + EXCEL_LAYOUT.endGap,
+    right: posFimEx.x + posFimEx.w + EXCEL_LAYOUT.endGap + 60,
     isDecision: false,
-    gridCol: ultimaEtapa.coluna + 1,
-    gridRow: ultimaEtapa.linha,
-    gridRowGlobal: laneUltima.rowOffsetGlobalStart + ultimaEtapa.linha,
-    area: ultimaEtapa.area || "Sem Área"
+    gridCol: etapaFimEx.coluna + 1,
+    gridRow: etapaFimEx.linha,
+    gridRowGlobal: laneUltima.rowOffsetGlobalStart + etapaFimEx.linha,
+    area: etapaFimEx.area || "Sem Área"
   };
 
   desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
@@ -5272,7 +5311,7 @@ function gerarFluxoExcel() {
   desenharConexaoExcel(
     svg,
     posicoes["__INICIO__"],
-    posicoes[primeiraEtapa.id],
+    posicoes[inicioAlvoIdEx],
     "",
     0,
     posicoes,
@@ -5293,7 +5332,7 @@ function gerarFluxoExcel() {
         svg,
         origem,
         posicoes[destinoId],
-        pergunta ? (indice === 0 ? "Sim" : `Sim ${indice + 1}`) : "",
+        rotuloConexaoFinal(etapa.id, destinoId, pergunta ? (indice === 0 ? "Sim" : `Sim ${indice + 1}`) : ""),
         indice,
         posicoes,
         sharedRegistry,
@@ -5306,7 +5345,7 @@ function gerarFluxoExcel() {
         svg,
         origem,
         posicoes[destinoId],
-        pergunta ? (indice === 0 ? "Não" : `Não ${indice + 1}`) : (indice === 0 ? "Não" : `Não ${indice + 1}`),
+        rotuloConexaoFinal(etapa.id, destinoId, pergunta ? (indice === 0 ? "Não" : `Não ${indice + 1}`) : (indice === 0 ? "Não" : `Não ${indice + 1}`)),
         indice,
         posicoes,
         sharedRegistry,
@@ -5319,7 +5358,7 @@ function gerarFluxoExcel() {
         svg,
         origem,
         posicoes[destinoId],
-        "",
+        rotuloConexaoFinal(etapa.id, destinoId, ""),
         indice + 1,
         posicoes,
         sharedRegistry,
@@ -5334,6 +5373,7 @@ function gerarFluxoExcel() {
     const destinosExtras = quebrarListaIds(etapa.conexoesExtras).filter(destino => destinoEhValido(destino, idsValidos));
 
     if (destinosSim.length === 0 && destinosNao.length === 0 && destinosExtras.length === 0) {
+      if (etapa.semSaida) return; // saída removida de propósito não vai ao Fim
       desenharConexaoExcel(
         svg,
         posicoes[etapa.id],
@@ -5347,9 +5387,66 @@ function gerarFluxoExcel() {
     }
   });
 
-  svg.setAttribute("viewBox", `0 0 ${larguraSvg} ${alturaSvg}`);
-  svg.setAttribute("width", larguraSvg);
-  svg.setAttribute("height", alturaSvg);  
+  // Fim a partir de uma caixa específica que tem saída própria
+  if (fimOrigem && posicoes[fimOrigem]) {
+    const lf = etapas.find(e => e.id === fimOrigem);
+    const temSaida = lf && (
+      quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.proxNao).filter(d => destinoEhValido(d, idsValidos)).length ||
+      quebrarListaIds(lf.conexoesExtras).filter(d => destinoEhValido(d, idsValidos)).length
+    );
+    if (temSaida) {
+      desenharConexaoExcel(svg, posicoes[fimOrigem], posicoes["__FIM__"], "", 0, posicoes, sharedRegistry, routeRegistry);
+    }
+  }
+
+  // Terminais Início/Fim adicionais (espelha a visão online)
+  let larguraFinal = larguraSvg;
+  let alturaFinal = alturaSvg;
+  if (Array.isArray(terminais) && terminais.length) {
+    const usadosPorAlvoEx = {};
+    const gapEx = EXCEL_LAYOUT.startGap || 24;
+    terminais.forEach((t) => {
+      const alvoPos = posicoes[t.alvo];
+      if (!alvoPos) return;
+      const ehInicio = t.tipo === "inicio";
+      const lado = t.lado || (ehInicio ? "left" : "right");
+      const k = `${lado}_${t.alvo}`;
+      const desloc = (usadosPorAlvoEx[k] || 0);
+      usadosPorAlvoEx[k] = desloc + 1;
+
+      const W = 60, H = 36;
+      let tx, tcy;
+      switch (lado) {
+        case "right":  tx = alvoPos.x + alvoPos.w + gapEx; tcy = alvoPos.cy + desloc * 46; break;
+        case "top":    tx = alvoPos.cx - W / 2 + desloc * 70; tcy = alvoPos.top - gapEx - H / 2; break;
+        case "bottom": tx = alvoPos.cx - W / 2 + desloc * 70; tcy = alvoPos.bottom + gapEx + H / 2; break;
+        case "left":
+        default:       tx = alvoPos.x - W - gapEx; tcy = alvoPos.cy + desloc * 46;
+      }
+      const termId = (ehInicio ? "__INI_" : "__FIMX_") + t.id + "__";
+      posicoes[termId] = {
+        id: termId, x: tx, y: tcy - H / 2, w: W, h: H,
+        cx: tx + W / 2, cy: tcy, top: tcy - H / 2, bottom: tcy + H / 2,
+        left: tx, right: tx + W, isDecision: false,
+        gridCol: (lado === "right") ? alvoPos.gridCol + 1
+               : (lado === "left") ? Math.max(0, alvoPos.gridCol - 1) : alvoPos.gridCol,
+        gridRow: alvoPos.gridRow, gridRowGlobal: alvoPos.gridRowGlobal, area: alvoPos.area
+      };
+      desenharCapsula(svg, ehInicio ? "Início" : "Fim", tx, tcy - H / 2, W, H);
+      if (ehInicio) {
+        desenharConexaoExcel(svg, posicoes[termId], alvoPos, "", 0, posicoes, sharedRegistry, routeRegistry);
+      } else {
+        desenharConexaoExcel(svg, alvoPos, posicoes[termId], "", 0, posicoes, sharedRegistry, routeRegistry);
+      }
+      larguraFinal = Math.max(larguraFinal, tx + W + 4);
+      alturaFinal = Math.max(alturaFinal, tcy + H / 2 + 4);
+    });
+  }
+
+  svg.setAttribute("viewBox", `0 0 ${larguraFinal} ${alturaFinal}`);
+  svg.setAttribute("width", larguraFinal);
+  svg.setAttribute("height", alturaFinal);
   svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
 
 return aplicarEscalaSVGExcel(svg, EXCEL_EXPORT_SCALE); 
