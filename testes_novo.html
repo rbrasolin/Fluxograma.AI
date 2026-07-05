@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Testes de Regressão — SVG Excel</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #111; }
+    .wrap { max-width: 1100px; margin: 20px auto; padding: 0 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: #555; font-size: 13px; margin-bottom: 16px; }
+    .barra { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    button { padding: 8px 14px; border: none; background: #1d3557; color: #fff; font-size: 13px; cursor: pointer; border-radius: 5px; }
+    button.sec { background: #777; }
+    button.ok { background: #2e7d32; }
+    button.warn { background: #b8860b; }
+    button.mini { padding: 4px 9px; font-size: 12px; }
+    button:hover { opacity: .92; }
+    .resumo { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .pill { padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; border: 1px solid #d9d9d9; background: #fff; }
+    .pill.pass { color: #2e7d32; border-color: #bfe3c0; }
+    .pill.fail { color: #c0392b; border-color: #efc0ba; }
+    .pill.base { color: #b8860b; border-color: #e8d9a8; }
+    table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }
+    th, td { border: 1px solid #e2e2e2; padding: 8px 10px; text-align: left; vertical-align: middle; }
+    th { background: #f5f5f5; }
+    .st { font-weight: bold; font-size: 12px; padding: 3px 8px; border-radius: 10px; display: inline-block; }
+    .st.PASS { background: #e7f6e8; color: #2e7d32; }
+    .st.FAIL { background: #fbe7e4; color: #c0392b; }
+    .st.BASE { background: #fbf3df; color: #b8860b; }
+    .st.ERRO { background: #f0f0f0; color: #555; }
+    .acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+    .diff { background: #1e1e1e; color: #eee; font-family: Consolas, monospace; font-size: 12px; padding: 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; margin-top: 6px; display: none; }
+    .diff.show { display: block; }
+    .diff .g { color: #7fd17f; }
+    .diff .a { color: #ff9a8c; }
+    .ajuda { background: #fff; border: 1px solid #e2e2e2; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+    .ajuda b { color: #1d3557; }
+    code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; }
+    .scaffold { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- ===================================================================
+       SCAFFOLD OCULTO
+       Reproduz os IDs do index.html para o script.js inicializar sem erro.
+       Nada aqui é mostrado; o motor de medição de texto cria seu próprio
+       SVG fora deste bloco, então a medição funciona normalmente.
+  ==================================================================== -->
+  <div class="scaffold" aria-hidden="true">
+    <input id="desenho" /><input id="processo" /><input id="analista" />
+    <input id="negocio" /><input id="area" /><input id="gestor" />
+    <textarea id="entrada"></textarea>
+    <div class="tabela-wrap">
+      <table id="tabelaFluxo"><tbody id="tbodyFluxo"></tbody></table>
+    </div>
+    <div class="diagram-scroll-top" id="diagramScrollTop"><div id="diagramScrollTopInner"></div></div>
+    <div id="diagramWrap"><div id="diagram"></div></div>
+    <div id="infoProcesso"></div>
+    <div id="metricas"></div>
+    <input type="file" id="importarProjetoInput" />
+  </div>
+
+  <div class="wrap">
+    <h1>Testes de Regressão — SVG Excel</h1>
+    <div class="sub">Onda 3 · A1 — protege o formato “Baixar SVG Excel” (intocável) contra quebras em qualquer alteração futura.</div>
+
+    <div class="ajuda">
+      <b>Como usar:</b><br>
+      1) <b>Primeira vez</b> (ou ao trocar de máquina/navegador): clique <b>“Importar goldens”</b> se já tiver o arquivo; senão clique <b>“Rodar testes”</b> e depois <b>“Salvar baseline (todos)”</b>.<br>
+      2) <b>Fixe a linha de base:</b> clique <b>“Exportar goldens (.json)”</b> e <b>commite</b> o arquivo no repositório (ele é a referência “intocável”).<br>
+      3) <b>A cada alteração no código:</b> abra esta página e clique <b>“Rodar testes”</b>. Tudo <b>verde</b> = formato preservado. Qualquer <b>vermelho</b> = algo mudou no SVG Excel — investigue antes de seguir.<br>
+      4) Mudança <b>intencional</b> no formato? Use <b>“atualizar golden”</b> na linha (consciente) e re-exporte.
+    </div>
+
+    <div class="barra">
+      <button onclick="rodarTodos()">Rodar testes</button>
+      <button class="ok" onclick="salvarBaselineTodos()">Salvar baseline (todos)</button>
+      <button class="sec" onclick="exportarGoldens()">Exportar goldens (.json)</button>
+      <button class="sec" onclick="document.getElementById('impGoldens').click()">Importar goldens (.json)</button>
+      <input type="file" id="impGoldens" accept="application/json,.json" style="display:none" onchange="importarGoldens(event)" />
+    </div>
+
+    <div class="resumo" id="resumo"></div>
+
+    <table>
+      <thead>
+        <tr><th>Fluxo de referência</th><th>Status</th><th>Tamanho (norm.)</th><th>Ações</th></tr>
+      </thead>
+      <tbody id="corpo"></tbody>
+    </table>
+  </div>
+
+  <!-- Motor real da ferramenta -->
+  <script src="script.js"></script>
+
+  <!-- Runner de testes (aditivo; não altera o script.js) -->
+  <script>
+  /* Protege o projeto real do usuário: desliga a persistência durante os testes.
+     Roda já no parse, ANTES do DOMContentLoaded/inicializarAplicacao. */
+  try { salvarEstadoLocal = function () {}; } catch (e) {}
+
+  const GOLDEN_KEY = "regressao_svgexcel_goldens_v1";
+
+  /* ---------- Linha-base de um item de fluxoData ---------- */
+  const LINHA_BASE = {
+    uid: "", ordem: 0, id: "", area: "", atividade: "", tipo: "",
+    sistema: "", tempo: "", coluna: 1, linha: 1,
+    colunaManual: true, linhaManual: true, cor: "white",
+    proxSim: "", proxNao: "", proxSimAuto: false, extras: [], semSaida: false
+  };
+  function montar(linhas) {
+    return linhas.map((l, i) => Object.assign({}, LINHA_BASE, { ordem: i + 1 }, l));
+  }
+
+  /* =====================================================================
+     FLUXOS DE REFERÊNCIA
+     uids: "u1".."uN". Os IDs visuais saem por ORDEM: 1ª linha = A, 2ª = B...
+     proxSim/proxNao apontam para UIDs. terminais/inicioAlvo/fimOrigem usam
+     IDs VISUAIS (A, B, C...). Rótulos: chave "ORIGEM__DESTINO" (ids visuais).
+     Adicione novos fluxos aqui livremente.
+  ===================================================================== */
+  const FLUXOS = [
+    {
+      nome: "F1 — Linear simples",
+      fluxoData: montar([
+        { uid: "u1", area: "Operação", atividade: "Receber solicitação", tipo: "Tarefa", sistema: "SAP", tempo: "00:05:00", coluna: 1, proxSim: "u2" },
+        { uid: "u2", area: "Operação", atividade: "Analisar dados", tipo: "Tarefa", sistema: "SAP", tempo: "00:10:00", coluna: 2, proxSim: "u3" },
+        { uid: "u3", area: "Operação", atividade: "Registrar resultado", tipo: "Tarefa", sistema: "SAP", tempo: "00:03:00", coluna: 3, proxSim: "u4" },
+        { uid: "u4", area: "Operação", atividade: "Comunicar área", tipo: "Tarefa", sistema: "Email", tempo: "00:02:00", coluna: 4, proxSim: "" }
+      ]),
+      estado: {}
+    },
+    {
+      nome: "F2 — Decisão + Sim/Não + reconvergência",
+      fluxoData: montar([
+        { uid: "u1", area: "Compras", atividade: "Receber pedido", tipo: "Tarefa", sistema: "SAP", tempo: "00:04:00", coluna: 1, linha: 1, proxSim: "u2" },
+        { uid: "u2", area: "Compras", atividade: "Pedido aprovado?", tipo: "Decisão", sistema: "SAP", tempo: "00:02:00", coluna: 2, linha: 1, proxSim: "u3", proxNao: "u4" },
+        { uid: "u3", area: "Compras", atividade: "Emitir nota", tipo: "Tarefa", sistema: "SAP", tempo: "00:06:00", coluna: 3, linha: 1, proxSim: "u5" },
+        { uid: "u4", area: "Compras", atividade: "Notificar recusa", tipo: "Tarefa", sistema: "Email", tempo: "00:03:00", coluna: 3, linha: 2, proxSim: "u5" },
+        { uid: "u5", area: "Compras", atividade: "Arquivar processo", tipo: "Tarefa", sistema: "GED", tempo: "00:02:00", coluna: 4, linha: 1, proxSim: "" }
+      ]),
+      // u2=B, u3=C, u4=D
+      estado: { rotulosConexoes: { "B__C": "Sim", "B__D": "Não" } }
+    },
+    {
+      nome: "F3 — Multi-raia (3 áreas)",
+      fluxoData: montar([
+        { uid: "u1", area: "Comercial", atividade: "Receber pedido", tipo: "Tarefa", sistema: "CRM", tempo: "00:05:00", coluna: 1, proxSim: "u2" },
+        { uid: "u2", area: "Comercial", atividade: "Validar cadastro", tipo: "Tarefa", sistema: "CRM", tempo: "00:04:00", coluna: 2, proxSim: "u3" },
+        { uid: "u3", area: "Financeiro", atividade: "Checar crédito", tipo: "Tarefa", sistema: "SAP", tempo: "00:06:00", coluna: 3, proxSim: "u4" },
+        { uid: "u4", area: "Financeiro", atividade: "Limite suficiente?", tipo: "Decisão", sistema: "SAP", tempo: "00:02:00", coluna: 4, proxSim: "u5", proxNao: "u6" },
+        { uid: "u5", area: "Logística", atividade: "Separar produto", tipo: "Tarefa", sistema: "WMS", tempo: "00:15:00", coluna: 5, proxSim: "u7" },
+        { uid: "u6", area: "Comercial", atividade: "Cancelar pedido", tipo: "Tarefa", sistema: "CRM", tempo: "00:03:00", coluna: 5, proxSim: "" },
+        { uid: "u7", area: "Logística", atividade: "Despachar", tipo: "Tarefa", sistema: "WMS", tempo: "00:08:00", coluna: 6, proxSim: "" }
+      ]),
+      // u4=D, u5=E, u6=F
+      estado: { rotulosConexoes: { "D__E": "Sim", "D__F": "Não" } }
+    },
+    {
+      nome: "F4 — Terminais extras (início/fim adicionais)",
+      fluxoData: montar([
+        { uid: "u1", area: "Cadastro", atividade: "Abrir ficha", tipo: "Tarefa", sistema: "Portal", tempo: "00:03:00", coluna: 1, proxSim: "u2" },
+        { uid: "u2", area: "Cadastro", atividade: "Preencher dados", tipo: "Tarefa", sistema: "Portal", tempo: "00:07:00", coluna: 2, proxSim: "u3" },
+        { uid: "u3", area: "Cadastro", atividade: "Concluir cadastro", tipo: "Tarefa", sistema: "Portal", tempo: "00:02:00", coluna: 3, proxSim: "" }
+      ]),
+      // A=u1, B=u2, C=u3 — Início padrão entra em A (esquerda) e Fim sai de C (direita).
+      // Terminais EXTRAS: um segundo Início no topo de A e um segundo Fim embaixo de C.
+      estado: {
+        terminais: [
+          { id: "t1", tipo: "inicio", alvo: "A", lado: "top", rotulo: "" },
+          { id: "t2", tipo: "fim", alvo: "C", lado: "bottom", rotulo: "" }
+        ]
+      }
+    },
+    {
+      nome: "F5 — Loop / retorno",
+      fluxoData: montar([
+        { uid: "u1", area: "Qualidade", atividade: "Preencher formulário", tipo: "Tarefa", sistema: "Forms", tempo: "00:05:00", coluna: 1, proxSim: "u2" },
+        { uid: "u2", area: "Qualidade", atividade: "Revisar preenchimento", tipo: "Tarefa", sistema: "Forms", tempo: "00:04:00", coluna: 2, proxSim: "u3" },
+        { uid: "u3", area: "Qualidade", atividade: "Está correto?", tipo: "Decisão", sistema: "Forms", tempo: "00:02:00", coluna: 3, proxSim: "u4", proxNao: "u1" },
+        { uid: "u4", area: "Qualidade", atividade: "Enviar para aprovação", tipo: "Tarefa", sistema: "Forms", tempo: "00:03:00", coluna: 4, proxSim: "" }
+      ]),
+      // u3=C, u4=D, u1=A — Sim segue, Não volta ao início (loop)
+      estado: { rotulosConexoes: { "C__D": "Sim", "C__A": "Não" } }
+    },
+    {
+      nome: "F6 — Fluxo grande (multi-área/coluna)",
+      fluxoData: montar([
+        { uid: "u1",  area: "Atendimento", atividade: "Receber chamado",      tipo: "Tarefa",  sistema: "Service", tempo: "00:03:00", coluna: 1, proxSim: "u2" },
+        { uid: "u2",  area: "Atendimento", atividade: "Classificar chamado",  tipo: "Tarefa",  sistema: "Service", tempo: "00:04:00", coluna: 2, proxSim: "u3" },
+        { uid: "u3",  area: "Atendimento", atividade: "É urgente?",           tipo: "Decisão", sistema: "Service", tempo: "00:01:00", coluna: 3, proxSim: "u4", proxNao: "u5" },
+        { uid: "u4",  area: "Suporte N2",  atividade: "Acionar plantão",      tipo: "Tarefa",  sistema: "Service", tempo: "00:05:00", coluna: 4, linha: 1, proxSim: "u6" },
+        { uid: "u5",  area: "Suporte N2",  atividade: "Entrar na fila",       tipo: "Tarefa",  sistema: "Service", tempo: "00:06:00", coluna: 4, linha: 2, proxSim: "u6" },
+        { uid: "u6",  area: "Suporte N2",  atividade: "Diagnosticar causa",   tipo: "Tarefa",  sistema: "Service", tempo: "00:12:00", coluna: 5, proxSim: "u7" },
+        { uid: "u7",  area: "Suporte N2",  atividade: "Resolveu?",            tipo: "Decisão", sistema: "Service", tempo: "00:02:00", coluna: 6, proxSim: "u9", proxNao: "u8" },
+        { uid: "u8",  area: "Engenharia",  atividade: "Abrir RFC",            tipo: "Tarefa",  sistema: "Jira",    tempo: "00:20:00", coluna: 7, proxSim: "u9" },
+        { uid: "u9",  area: "Atendimento", atividade: "Registrar solução",    tipo: "Tarefa",  sistema: "Service", tempo: "00:04:00", coluna: 8, proxSim: "u10" },
+        { uid: "u10", area: "Atendimento", atividade: "Comunicar cliente",    tipo: "Tarefa",  sistema: "Email",   tempo: "00:03:00", coluna: 9, proxSim: "u11" },
+        { uid: "u11", area: "Atendimento", atividade: "Pesquisa satisfação",  tipo: "Tarefa",  sistema: "Forms",   tempo: "00:02:00", coluna: 10, proxSim: "" }
+      ]),
+      // u3=C, u4=D, u5=E ; u7=G, u8=H, u9=I
+      estado: { rotulosConexoes: { "C__D": "Sim", "C__E": "Não", "G__I": "Sim", "G__H": "Não" } }
+    }
+  ];
+
+  /* ---------- Estado do editor ---------- */
+  function resetEstadoEditor() {
+    overridesConexoes = {};
+    ordemRaias = [];
+    rotulosConexoes = {};
+    terminais = [];
+    inicioAlvo = "";
+    fimOrigem = "";
+    inicioOculto = false;
+  }
+  function aplicarReferencia(ref) {
+    resetEstadoEditor();
+    fluxoData = ref.fluxoData.map(r => Object.assign({}, r, { extras: Array.isArray(r.extras) ? r.extras.slice() : [] }));
+    const e = ref.estado || {};
+    if (e.overridesConexoes) overridesConexoes = JSON.parse(JSON.stringify(e.overridesConexoes));
+    if (e.ordemRaias) ordemRaias = e.ordemRaias.slice();
+    if (e.rotulosConexoes) rotulosConexoes = JSON.parse(JSON.stringify(e.rotulosConexoes));
+    if (e.terminais) terminais = JSON.parse(JSON.stringify(e.terminais));
+    if (e.inicioAlvo != null) inicioAlvo = e.inicioAlvo;
+    if (e.fimOrigem != null) fimOrigem = e.fimOrigem;
+    if (e.inicioOculto != null) inicioOculto = e.inicioOculto;
+  }
+
+  /* ---------- Geração + normalização ---------- */
+  function gerarSVGString(ref) {
+    aplicarReferencia(ref);
+    const svg = gerarFluxoExcel();
+    if (!svg) return null;
+    return new XMLSerializer().serializeToString(svg);
+  }
+  // Arredonda floats p/ 2 casas (mata jitter sub-pixel) e remove espaços entre tags.
+  function normalizar(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/-?\d+\.\d+/g, m => parseFloat(m).toFixed(2))
+      .replace(/>\s+</g, "><")
+      .trim();
+  }
+
+  /* ---------- Goldens ---------- */
+  function carregarGoldens() {
+    try { return JSON.parse(localStorage.getItem(GOLDEN_KEY) || "{}"); }
+    catch (e) { return {}; }
+  }
+  function gravarGoldens(g) { localStorage.setItem(GOLDEN_KEY, JSON.stringify(g)); }
+
+  /* ---------- Diff: primeira diferença com contexto ---------- */
+  function primeiraDiferenca(golden, atual) {
+    const n = Math.min(golden.length, atual.length);
+    let i = 0;
+    while (i < n && golden[i] === atual[i]) i++;
+    const ini = Math.max(0, i - 40);
+    return {
+      pos: i,
+      golden: golden.slice(ini, i + 40),
+      atual: atual.slice(ini, i + 40),
+      marca: i - ini
+    };
+  }
+
+  /* ---------- Execução ---------- */
+  let ultimosResultados = {};
+
+  function rodarTodos() {
+    const goldens = carregarGoldens();
+    const corpo = document.getElementById("corpo");
+    corpo.innerHTML = "";
+    ultimosResultados = {};
+    let pass = 0, fail = 0, base = 0, erro = 0;
+
+    FLUXOS.forEach((ref, idx) => {
+      let atual = null, status, tam = "—";
+      try {
+        atual = normalizar(gerarSVGString(ref));
+        tam = atual.length.toLocaleString("pt-BR");
+      } catch (ex) {
+        status = "ERRO";
+        ultimosResultados[ref.nome] = { status, erroMsg: String(ex && ex.message || ex) };
+      }
+
+      if (atual != null) {
+        const g = goldens[ref.nome];
+        if (g == null) { status = "BASE"; base++; }
+        else if (g === atual) { status = "PASS"; pass++; }
+        else { status = "FAIL"; fail++; }
+        ultimosResultados[ref.nome] = { status, atual, golden: g };
+      } else {
+        erro++;
+      }
+
+      const tr = document.createElement("tr");
+      const acoes = [
+        '<button class="mini sec" onclick="verSVG(' + idx + ')">ver SVG</button>',
+        '<button class="mini" onclick="atualizarGolden(\'' + ref.nome.replace(/'/g, "\\'") + '\')">atualizar golden</button>'
+      ];
+      if (status === "FAIL") acoes.push('<button class="mini warn" onclick="verDiff(\'' + ref.nome.replace(/'/g, "\\'") + '\')">ver diff</button>');
+
+      tr.innerHTML =
+        '<td>' + ref.nome + '</td>' +
+        '<td><span class="st ' + status + '">' + status + '</span></td>' +
+        '<td>' + tam + '</td>' +
+        '<td><div class="acoes">' + acoes.join("") + '</div><div class="diff" id="diff_' + idx + '"></div></td>';
+      tr.dataset.idx = idx;
+      corpo.appendChild(tr);
+    });
+
+    const resumo = document.getElementById("resumo");
+    resumo.innerHTML =
+      '<div class="pill pass">PASS: ' + pass + '</div>' +
+      '<div class="pill fail">FAIL: ' + fail + '</div>' +
+      '<div class="pill base">SEM BASELINE: ' + base + '</div>' +
+      (erro ? '<div class="pill fail">ERRO: ' + erro + '</div>' : '');
+  }
+
+  function idxPorNome(nome) { return FLUXOS.findIndex(f => f.nome === nome); }
+
+  function verSVG(idx) {
+    const ref = FLUXOS[idx];
+    const svg = gerarSVGString(ref);
+    if (!svg) { alert("Não gerou SVG (fluxo vazio?)."); return; }
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    window.open(URL.createObjectURL(blob), "_blank");
+  }
+
+  function verDiff(nome) {
+    const idx = idxPorNome(nome);
+    const r = ultimosResultados[nome];
+    const el = document.getElementById("diff_" + idx);
+    if (!r || r.golden == null) { el.textContent = "Sem golden para comparar."; el.classList.add("show"); return; }
+    const d = primeiraDiferenca(r.golden, r.atual);
+    el.innerHTML =
+      "Primeira diferença na posição " + d.pos + " (de " + r.golden.length + " vs " + r.atual.length + " chars):\n\n" +
+      '<span class="g">golden: …' + escapar(d.golden) + '…</span>\n' +
+      '<span class="a">atual : …' + escapar(d.atual) + '…</span>';
+    el.classList.toggle("show");
+  }
+  function escapar(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  function atualizarGolden(nome) {
+    const ref = FLUXOS[idxPorNome(nome)];
+    let atual;
+    try { atual = normalizar(gerarSVGString(ref)); }
+    catch (ex) { alert("Erro ao gerar: " + ex); return; }
+    const g = carregarGoldens();
+    g[nome] = atual;
+    gravarGoldens(g);
+    rodarTodos();
+  }
+
+  function salvarBaselineTodos() {
+    if (!confirm("Salvar a saída ATUAL de TODOS os fluxos como baseline?\nUse só quando o formato atual está correto.")) return;
+    const g = {};
+    FLUXOS.forEach(ref => {
+      try { const s = normalizar(gerarSVGString(ref)); if (s) g[ref.nome] = s; } catch (e) {}
+    });
+    gravarGoldens(g);
+    rodarTodos();
+  }
+
+  function exportarGoldens() {
+    const g = carregarGoldens();
+    if (!Object.keys(g).length) { alert("Não há goldens salvos ainda. Rode os testes e clique em 'Salvar baseline'."); return; }
+    const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "goldens_svgexcel.json";
+    a.click();
+  }
+
+  function importarGoldens(ev) {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try { gravarGoldens(JSON.parse(r.result)); rodarTodos(); alert("Goldens importados."); }
+      catch (e) { alert("Arquivo inválido: " + e); }
+    };
+    r.readAsText(f);
+    ev.target.value = "";
+  }
+
+  // Render inicial (sem rodar geração, só monta a tabela vazia com 1 clique de instrução)
+  window.addEventListener("load", () => { rodarTodos(); });
+  </script>
+</body>
+</html>

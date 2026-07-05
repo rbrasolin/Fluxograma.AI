@@ -13,6 +13,8 @@ let ignorarBlurAutocomplete = false;
 let overridesConexoes = {};   // chave "origemId__destinoId" -> { startSide, endSide }
 let ordemRaias = [];          // ordem manual das áreas (raias)
 let modoEdicaoAtivo = false;  // modo "Ajustar fluxo" ligado/desligado
+let ultimasPosicoesNos = null;  // mapa de posições do último render (para "mover caixa")
+let filtroAnaliseArea = "";  // filtro de raia da Análise ("" = Todos)
 let conexaoSelecionada = null;// { origemId, destinoId } em edição
 let ultimasAreasOrdenadas = [];// snapshot das raias do último render (para o painel)
 
@@ -36,6 +38,8 @@ function obterEstadoAtual() {
       negocio: obterValorCampo("negocio"),
       area: obterValorCampo("area"),
       gestor: obterValorCampo("gestor"),
+      valorFTE: obterValorCampo("valorFTE"),
+      volumetria: obterValorCampo("volumetria"),
       entrada: obterValorCampo("entrada")
     },
     fluxoData: Array.isArray(fluxoData)
@@ -57,7 +61,8 @@ function obterEstadoAtual() {
           proxSimAuto: !!item.proxSimAuto,
           proxNao: item.proxNao || "",
           extras: Array.isArray(item.extras) ? [...item.extras] : [],
-          semSaida: !!item.semSaida
+          semSaida: !!item.semSaida,
+          simRemovido: !!item.simRemovido
         }))
       : [],
     uidCounter: Number(uidCounter) || 1,
@@ -132,6 +137,8 @@ function restaurarEstadoLocal() {
     preencherCampoSeExistir("negocio", topo.negocio || "");
     preencherCampoSeExistir("area", topo.area || "");
     preencherCampoSeExistir("gestor", topo.gestor || "");
+    preencherCampoSeExistir("valorFTE", topo.valorFTE || "");
+    preencherCampoSeExistir("volumetria", topo.volumetria || "");
     preencherCampoSeExistir("entrada", topo.entrada || "");
 
     fluxoData = Array.isArray(estado.fluxoData)
@@ -152,7 +159,9 @@ function restaurarEstadoLocal() {
           proxSim: item.proxSim || "",
           proxSimAuto: !!item.proxSimAuto,
           proxNao: item.proxNao || "",
-          extras: Array.isArray(item.extras) ? [...item.extras] : []
+          extras: Array.isArray(item.extras) ? [...item.extras] : [],
+          semSaida: !!item.semSaida,
+          simRemovido: !!item.simRemovido
         }))
       : [];
 
@@ -403,21 +412,19 @@ function reaplicarSugestoesConexao(forcarTudo = false) {
     const proximaLinha = fluxoData[index + 1] || null;
     const sugestaoUid = proximaLinha ? proximaLinha.uid : "";
 
-    // Se a conexão já era automática, pode atualizar a sugestão
-    if (linha.proxSimAuto) {
+    // Se a conexão já era automática, atualiza a sugestão
+    if (linha.proxSimAuto && !linha.simRemovido) {
       linha.proxSim = sugestaoUid;
       linha.proxSimAuto = !!sugestaoUid;
       return;
     }
 
-    // Se a linha ainda não tem nenhuma conexão manual,
-    // aplica sugestão automática inicial
-    const semConexaoManual =
-      !linha.proxSim &&
-      !linha.proxNao &&
-      (!Array.isArray(linha.extras) || linha.extras.length === 0);
-
-    if (semConexaoManual) {
+    // Onda 3: como não existe mais a coluna "Próxima", o "Sim" é SEMPRE a
+    // próxima atividade da ordem. Garante a conexão sempre que o "Sim" estiver
+    // vazio, EXCETO quando a saída foi removida de propósito no editor
+    // (semSaida). Decisões também recebem o "Sim" automático aqui; o "Não"
+    // continua manual.
+    if (!linha.proxSim && !linha.semSaida && !linha.simRemovido) {
       linha.proxSim = sugestaoUid;
       linha.proxSimAuto = !!sugestaoUid;
     }
@@ -1072,11 +1079,9 @@ function atualizarTabela() {
     linha.id = id;
 
     const tr = document.createElement("tr");
+    tr.dataset.uid = linha.uid;
 
     tr.innerHTML = `
-      <td>${ordem}</td>
-      <td>${id}</td>
-
       <td>
         <input
           class="flow-input"
@@ -1098,6 +1103,7 @@ function atualizarTabela() {
           data-campo="atividade"
           value="${escaparHTML(linha.atividade || "")}"
           oninput="updateCampo('${linha.uid}','atividade',this.value)"
+          onblur="aoSairCampoLinha('${linha.uid}')"
         >
       </td>
 
@@ -1140,30 +1146,6 @@ function atualizarTabela() {
       </td>
 
       <td>
-        <input
-          class="flow-input"
-          data-uid="${linha.uid}"
-          data-campo="coluna"
-          type="number"
-          min="1"
-          value="${linha.coluna || 1}"
-          oninput="updateCampo('${linha.uid}','coluna',this.value)"
-        >
-      </td>
-
-      <td>
-        <input
-          class="flow-input"
-          data-uid="${linha.uid}"
-          data-campo="linha"
-          type="number"
-          min="1"
-          value="${linha.linha || 1}"
-          oninput="updateCampo('${linha.uid}','linha',this.value)"
-        >
-      </td>
-
-      <td>
         <select
           class="flow-input"
           data-uid="${linha.uid}"
@@ -1178,13 +1160,7 @@ function atualizarTabela() {
         </select>
       </td>
 
-      <td>${criarSelectConexao(linha.uid, linha.proxSim, "proxSim")}</td>
-      <td>${criarSelectConexao(linha.uid, linha.proxNao, "proxNao")}</td>
-
-      <td>
-        <div id="extras_${linha.uid}"></div>
-        <button type="button" class="btn-small" tabindex="-1" onclick="addExtra('${linha.uid}')">+ adicionar</button>
-      </td>
+      <td class="cel-nao" data-decisao="${ehDecisao(linha) ? "1" : "0"}">${ehDecisao(linha) ? criarSelectConexao(linha.uid, linha.proxNao, "proxNao") : '<span class="cel-vazia">&mdash;</span>'}</td>
 
       <td class="acoes-btn">
         <button type="button" class="btn-small" tabindex="-1" onclick="adicionarLinha(${index})">↑ inserir</button>
@@ -1194,10 +1170,22 @@ function atualizarTabela() {
     `;
 
     tbody.appendChild(tr);
-    renderExtras(linha);
   });
 
   atualizarOpcoesDeConexao();
+}
+
+function aoSairCampoLinha(uid) {
+  // Re-renderiza a tabela apenas quando o "status de decisão" da linha muda,
+  // para a célula "Não" aparecer/sumir sem perder o foco durante a digitação.
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+  const cel = document.querySelector(`#tbodyFluxo tr[data-uid="${uid}"] .cel-nao`);
+  if (!cel) return;
+  const novo = ehDecisao(linha) ? "1" : "0";
+  if (cel.getAttribute("data-decisao") !== novo) {
+    atualizarTabela();
+  }
 }
 
 function criarSelectConexao(uidAtual, valorSelecionado, campo) {
@@ -1608,6 +1596,9 @@ function importarExcel() {
     delete linha.proxNaoOriginal;
     delete linha.conexoesExtrasOriginal;
   });
+
+  // Onda 3: garante "Sim = próxima" para caixas importadas sem "Próxima".
+  reaplicarSugestoesConexao(true);
 
   atualizarTabela();
   salvarEstadoLocal(true);
@@ -2154,6 +2145,8 @@ function limparTudo() {
   limparCampo("negocio");
   limparCampo("area");
   limparCampo("gestor");
+  limparCampo("valorFTE");
+  limparCampo("volumetria");
   limparCampo("entrada");
 
   fluxoData = [];
@@ -3857,6 +3850,92 @@ function podeCompartilharDestino(origem, sharedInfo) {
   return origem.gridCol === sharedInfo.sourceGridCol;
 }
 
+/* =====================================================================
+   ONDA 3 — Endireitamento guardado de rotas (menos dobras, sempre 90°)
+   Reduz dobras desnecessárias SÓ quando o caminho mais curto não cruza
+   caixas nem outras setas. Caso contrário, mantém a rota original.
+   Aplica-se aos dois pipelines (tela e Excel), que compartilham a rota.
+===================================================================== */
+function direcaoSeg(a, b) {
+  if (a.x === b.x) return b.y > a.y ? "down" : "up";
+  return b.x > a.x ? "right" : "left";
+}
+
+function removerColineares(points) {
+  if (!Array.isArray(points)) return points;
+  // remove duplicados consecutivos
+  const dedup = [];
+  points.forEach(p => {
+    const u = dedup[dedup.length - 1];
+    if (!u || u.x !== p.x || u.y !== p.y) dedup.push({ x: p.x, y: p.y });
+  });
+  if (dedup.length < 3) return dedup;
+  const out = [dedup[0]];
+  for (let i = 1; i < dedup.length - 1; i++) {
+    const a = out[out.length - 1], b = dedup[i], c = dedup[i + 1];
+    const colinearH = a.y === b.y && b.y === c.y;
+    const colinearV = a.x === b.x && b.x === c.x;
+    if (colinearH || colinearV) continue; // ponto do meio é redundante
+    out.push(b);
+  }
+  out.push(dedup[dedup.length - 1]);
+  return out;
+}
+
+function projetarLabelNaRota(label, points) {
+  if (!label || !Array.isArray(points) || points.length < 2) return label;
+  let melhor = null, menorDist = Infinity;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i], b = points[i + 1];
+    let px, py;
+    if (a.x === b.x) {
+      px = a.x;
+      py = Math.min(Math.max(label.y, Math.min(a.y, b.y)), Math.max(a.y, b.y));
+    } else {
+      py = a.y;
+      px = Math.min(Math.max(label.x, Math.min(a.x, b.x)), Math.max(a.x, b.x));
+    }
+    const d = Math.hypot(px - label.x, py - label.y);
+    if (d < menorDist) { menorDist = d; melhor = { x: px, y: py }; }
+  }
+  return melhor || label;
+}
+
+function simplificarRota(points, posicoes = {}, excludeIds = [], rotasExistentes = []) {
+  let melhor = removerColineares(points);
+  if (melhor.length < 4) return melhor;
+
+  const dirPrimeiro = direcaoSeg(melhor[0], melhor[1]);
+  const dirUltimo = direcaoSeg(melhor[melhor.length - 2], melhor[melhor.length - 1]);
+
+  let mudou = true;
+  let guarda = 0;
+  while (mudou && guarda++ < 50) {
+    mudou = false;
+    for (let i = 0; i + 3 < melhor.length; i++) {
+      const a = melhor[i], d = melhor[i + 3];
+      const cantos = [{ x: a.x, y: d.y }, { x: d.x, y: a.y }];
+      for (const corner of cantos) {
+        const candidato = melhor.slice(0, i + 1).concat([corner], melhor.slice(i + 3));
+        const limpo = removerColineares(candidato);
+        if (limpo.length >= melhor.length) continue;          // não reduziu dobras
+        if (limpo.length < 2) continue;
+        // preserva direção de saída e de chegada (mantém ancoragem nas caixas)
+        if (direcaoSeg(limpo[0], limpo[1]) !== dirPrimeiro) continue;
+        if (direcaoSeg(limpo[limpo.length - 2], limpo[limpo.length - 1]) !== dirUltimo) continue;
+        // só aceita se não cruzar caixas nem outras setas
+        if (pathCruzaCaixas(limpo, posicoes, excludeIds)) continue;
+        if (pathCruzaConexoes(limpo, rotasExistentes)) continue;
+        melhor = limpo;
+        mudou = true;
+        break;
+      }
+      if (mudou) break;
+    }
+  }
+  return melhor;
+}
+
 function desenharConexao(
   svg,
   origem,
@@ -3924,6 +4003,16 @@ function desenharConexao(
       label: rota.label
     };
   }
+
+  // Onda 3: endireitamento guardado — reduz dobras só quando o caminho mais
+  // curto não cruza caixas nem outras setas (senão mantém a rota atual).
+  rota.points = simplificarRota(
+    rota.points,
+    posicoes,
+    [origem.id, destino.id, "__INICIO__", "__FIM__"],
+    routeRegistry
+  );
+  if (rota.label) rota.label = projetarLabelNaRota(rota.label, rota.points);
 
   const path = criarElementoSVG("path");
   path.setAttribute("d", createPolylinePath(rota.points));
@@ -4044,6 +4133,16 @@ function desenharConexaoExcel(
     };
   }
 
+  // Onda 3: endireitamento guardado — reduz dobras só quando o caminho mais
+  // curto não cruza caixas nem outras setas (senão mantém a rota atual).
+  rota.points = simplificarRota(
+    rota.points,
+    posicoes,
+    [origem.id, destino.id, "__INICIO__", "__FIM__"],
+    routeRegistry
+  );
+  if (rota.label) rota.label = projetarLabelNaRota(rota.label, rota.points);
+
   const path = criarElementoSVG("path");
   path.setAttribute("d", createPolylinePath(rota.points));
   path.setAttribute("fill", "none");
@@ -4162,6 +4261,42 @@ function gerarTabelaPareto(atividadesTempo, tempoTotal) {
   );
 }
 
+/* =====================================================================
+   ONDA 3 — C2: cálculo de FTE
+   FTE = (tempo por execução em horas x volumetria mensal) / valor FTE (h/mês)
+   Helper único usado pela tela e pelo PDF. Calcula total e por área.
+===================================================================== */
+function calcularFTE(tempoTotalSegundos, etapas) {
+  const valorFTE = parseFloat(String(obterValorCampo("valorFTE") || "").replace(",", ".")) || 0;
+  const volumetria = parseFloat(String(obterValorCampo("volumetria") || "").replace(",", ".")) || 0;
+  const valido = valorFTE > 0 && volumetria > 0;
+  const horasTotal = (tempoTotalSegundos || 0) / 3600;
+  const fteTotal = valido ? (horasTotal * volumetria) / valorFTE : null;
+
+  const porArea = {};
+  (etapas || []).forEach(e => {
+    const a = limpar(e.area || "") || "Sem \u00c1rea";
+    porArea[a] = (porArea[a] || 0) + (e.tempo || 0);
+  });
+  const ftePorArea = Object.entries(porArea)
+    .map(([area, seg]) => ({
+      area,
+      tempoSeg: seg,
+      fte: valido ? ((seg / 3600) * volumetria) / valorFTE : null
+    }))
+    .sort((x, y) => y.tempoSeg - x.tempoSeg);
+
+  return { valorFTE, volumetria, fteTotal, ftePorArea, valido };
+}
+
+function formatarFTE(v) {
+  if (v == null) return "Não informado";
+  return (Math.round(v * 100) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
 function renderInformacoesProcessoExecutivas(info) {
   return `
     <div class="exec-card">
@@ -4190,6 +4325,22 @@ function renderInformacoesProcessoExecutivas(info) {
         <div class="exec-info-item">
           <div class="exec-info-label">Gestor</div>
           <div class="exec-info-value">${escaparHTML(info.gestor || "Não informado")}</div>
+        </div>
+        <div class="exec-info-item">
+          <div class="exec-info-label">Valor FTE (h/mês)</div>
+          <div class="exec-info-value">${info.valorFTE ? info.valorFTE : "Não informado"}</div>
+        </div>
+        <div class="exec-info-item">
+          <div class="exec-info-label">Volumetria (exec./mês)</div>
+          <div class="exec-info-value">${info.volumetria ? info.volumetria : "Não informado"}</div>
+        </div>
+        <div class="exec-info-item">
+          <div class="exec-info-label">Tempo por execução</div>
+          <div class="exec-info-value">${info.tempoTotal != null ? formatarTempo(info.tempoTotal) : "Não informado"}</div>
+        </div>
+        <div class="exec-info-item">
+          <div class="exec-info-label">FTE total</div>
+          <div class="exec-info-value">${formatarFTE(info.fteTotal != null ? info.fteTotal : null)}</div>
         </div>
       </div>
     </div>
@@ -4257,6 +4408,62 @@ function renderResumoAnaliseExecutivo(dados) {
       </div>
     </div>
   `;
+}
+
+/* =====================================================================
+   ONDA 3 — C2.2: filtro de raia na Análise do Processo
+   A seleção (raia ou Todos) recalcula os números via coletarDados(filtro).
+===================================================================== */
+function aplicarFiltroAnalise(area) {
+  filtroAnaliseArea = area || "";
+  renderAnaliseComFiltro();
+}
+
+function renderFTEResumo(fte, filtroArea) {
+  const escopo = filtroArea ? `Raia: ${escaparHTML(filtroArea)}` : "Processo inteiro";
+  let html = `<div class="exec-card"><div class="exec-card-title">FTE \u2014 ${escopo}</div>`;
+  html += `<div class="exec-summary-grid">
+      <div class="exec-summary-item"><div class="exec-summary-label">FTE ${filtroArea ? "da raia" : "total"}</div><div class="exec-summary-value">${formatarFTE(fte.fteTotal)}</div></div>
+      <div class="exec-summary-item"><div class="exec-summary-label">Volumetria</div><div class="exec-summary-value">${fte.volumetria ? fte.volumetria + " /m\u00eas" : "N\u00e3o informado"}</div></div>
+      <div class="exec-summary-item"><div class="exec-summary-label">Valor FTE</div><div class="exec-summary-value">${fte.valorFTE ? fte.valorFTE + " h/m\u00eas" : "N\u00e3o informado"}</div></div>
+    </div>`;
+  if (!filtroArea && fte.ftePorArea && fte.ftePorArea.length > 1) {
+    const rows = fte.ftePorArea.map(a =>
+      `<tr><td>${escaparHTML(a.area)}</td><td class="td-center">${formatarTempo(a.tempoSeg)}</td><td class="td-center">${formatarFTE(a.fte)}</td></tr>`
+    ).join("");
+    html += `<div class="exec-table-block"><div class="exec-table-title">FTE por \u00e1rea</div><div class="exec-table-wrap"><table class="exec-table"><thead><tr><th>\u00c1rea</th><th class="th-center">Tempo</th><th class="th-center">FTE</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderAnaliseComFiltro() {
+  const cont = document.getElementById("metricas");
+  if (!cont) return;
+
+  const areasAtuais = Array.from(new Set(
+    obterEtapasDaTabela().map(e => limpar(e.area || "") || "Sem \u00c1rea")
+  ));
+  if (filtroAnaliseArea && !areasAtuais.includes(filtroAnaliseArea)) {
+    filtroAnaliseArea = "";
+  }
+
+  const dados = coletarDadosAnaliseEstruturados(filtroAnaliseArea);
+  if (!dados) { cont.innerHTML = ""; return; }
+
+  let etapasFiltradas = obterEtapasDaTabela();
+  if (filtroAnaliseArea) {
+    etapasFiltradas = etapasFiltradas.filter(e => (limpar(e.area || "") || "Sem \u00c1rea") === filtroAnaliseArea);
+  }
+  const fte = calcularFTE(dados.tempoTotal, etapasFiltradas);
+
+  const opts = ['<option value="">Todos</option>'].concat(
+    areasAtuais.map(a => `<option value="${escaparHTML(a)}" ${a === filtroAnaliseArea ? "selected" : ""}>${escaparHTML(a)}</option>`)
+  ).join("");
+
+  const filtroHTML = `<div class="analise-filtro"><label>Raia:</label><select onchange="aplicarFiltroAnalise(this.value)">${opts}</select></div>`;
+
+  cont.innerHTML = filtroHTML + renderFTEResumo(fte, filtroAnaliseArea) + renderizarAnaliseExecutiva(dados);
 }
 
 function renderizarAnaliseExecutiva(dados) {
@@ -4375,11 +4582,21 @@ function gerarFluxo() {
     return;
   }
 
+  // Onda 3: garante o "Sim = próxima da ordem" antes de montar as etapas.
+  reaplicarSugestoesConexao();
+
   const etapas = obterEtapasDaTabela();
 
   if (!etapas.length) {
     mostrarToast("Nenhuma etapa válida foi encontrada na tabela.", "alerta");
     return;
+  }
+
+  // Onda 3 / A2 — valida o fluxo e mostra o painel (não bloqueia a geração)
+  const _resultadoValidacao = validarFluxo();
+  renderPainelValidacao(_resultadoValidacao);
+  if (_resultadoValidacao.erros.length) {
+    mostrarToast(`Fluxo gerado, mas com ${_resultadoValidacao.erros.length} erro(s) — veja o painel acima.`, "erro");
   }
 
   const desenho = obterValorCampo("desenho");
@@ -4891,13 +5108,19 @@ function gerarFluxo() {
     ? (decisoes / etapas.length) * 100
     : 0;
 
+  const fteData = calcularFTE(tempoTotal, etapas);
   const infoProcessoData = {
     desenho,
     processo,
     analista,
     negocio,
     area,
-    gestor
+    gestor,
+    valorFTE: fteData.valorFTE,
+    volumetria: fteData.volumetria,
+    tempoTotal,
+    fteTotal: fteData.fteTotal,
+    ftePorArea: fteData.ftePorArea
   };
 
   document.getElementById("infoProcesso").innerHTML =
@@ -4941,8 +5164,10 @@ function gerarFluxo() {
     })()
   };
 
-  document.getElementById("metricas").innerHTML =
-    renderizarAnaliseExecutiva(dadosAnalise);
+  renderAnaliseComFiltro();
+
+  // Guarda as posições do render atual (usadas pelo "mover caixa" do editor).
+  ultimasPosicoesNos = posicoes;
 
   // Se o modo de edição estiver ligado, reativa os controles sobre o novo SVG.
   if (modoEdicaoAtivo) {
@@ -5526,11 +5751,16 @@ function obterSVGPronto() {
   return clone;
 }
 
-function coletarDadosAnaliseEstruturados() {
+function coletarDadosAnaliseEstruturados(filtroArea = "") {
   if (!fluxoData || fluxoData.length === 0) return null;
 
-  const etapas = obterEtapasDaTabela();
+  let etapas = obterEtapasDaTabela();
   if (!etapas.length) return null;
+
+  if (filtroArea) {
+    etapas = etapas.filter(e => (limpar(e.area || "") || "Sem Área") === filtroArea);
+    if (!etapas.length) return null;
+  }
 
   etapas.sort((a, b) => a.ordem - b.ordem);
 
@@ -5874,7 +6104,7 @@ async function _baixarAnalisePDFInterno() {
   if (!svg) { mostrarToast("Gere o fluxo primeiro.", "alerta"); return; }
 
   const infoLinhas = extrairLinhasInfoProcesso();
-  const dados = coletarDadosAnaliseEstruturados();
+  const dados = coletarDadosAnaliseEstruturados(filtroAnaliseArea);
 
   const { jsPDF } = window.jspdf;
 
@@ -5941,6 +6171,25 @@ async function _baixarAnalisePDFInterno() {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
 
+  // C2.3: escopo do filtro de raia + FTE
+  let etapasPdf = obterEtapasDaTabela();
+  if (filtroAnaliseArea) {
+    etapasPdf = etapasPdf.filter(e => (limpar(e.area || "") || "Sem Área") === filtroAnaliseArea);
+  }
+  const ftePdf = calcularFTE(dados.tempoTotal, etapasPdf);
+
+  y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
+  doc.text(`Escopo: ${filtroAnaliseArea ? "Raia " + filtroAnaliseArea : "Processo inteiro"}`, margem, y);
+  y += 18;
+
+  y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
+  doc.text(
+    `FTE ${filtroAnaliseArea ? "da raia" : "total"}: ${formatarFTE(ftePdf.fteTotal)}  |  Volumetria: ${ftePdf.volumetria || "Não informado"}  |  Valor FTE: ${ftePdf.valorFTE || "Não informado"}`,
+    margem,
+    y
+  );
+  y += 18;
+
   y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
   doc.text(`Tempo total do processo: ${formatarTempo(dados.tempoTotal)}`, margem, y);
   y += 18;
@@ -5964,6 +6213,27 @@ async function _baixarAnalisePDFInterno() {
     y
   );
   y += 6;
+
+  if (!filtroAnaliseArea && ftePdf.ftePorArea && ftePdf.ftePorArea.length > 1) {
+    y = desenharTabelaPDF(doc, {
+      titulo: "FTE por Área",
+      columns: [
+        { header: "Área", key: "area", weight: 5.5, align: "left" },
+        { header: "Tempo (horas)", key: "tempoFmt", weight: 1.6, align: "center" },
+        { header: "FTE", key: "fteFmt", weight: 1.2, align: "center" }
+      ],
+      rows: ftePdf.ftePorArea.map(a => ({
+        area: a.area,
+        tempoFmt: formatarTempo(a.tempoSeg),
+        fteFmt: formatarFTE(a.fte)
+      })),
+      x: margem,
+      yInicial: y,
+      larguraTotal: larguraUtil,
+      margem,
+      pageHeight
+    });
+  }
 
   y = desenharTabelaPDF(doc, {
     titulo: "Top 3 Gargalos",
@@ -6478,6 +6748,28 @@ function aplicarCamadaEdicao() {
     g.appendChild(hit);
   });
 
+  // Caixas clicáveis para "mover caixa" (Onda 3 / 3b)
+  if (ultimasPosicoesNos) {
+    const mapaMov = mapaIdVisualUid();
+    mapaMov.validas.forEach((l) => {
+      const idVis = mapaMov.uidParaVisual[l.uid];
+      const pos = ultimasPosicoesNos[idVis];
+      if (!pos) return;
+      const hitNo = criarElementoSVG("rect");
+      hitNo.setAttribute("x", pos.x);
+      hitNo.setAttribute("y", pos.y);
+      hitNo.setAttribute("width", pos.w);
+      hitNo.setAttribute("height", pos.h);
+      hitNo.setAttribute("fill", "rgba(0,0,0,0.001)");
+      hitNo.setAttribute("style", "cursor:move");
+      hitNo.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        abrirMoverCaixa(l.uid, ev);
+      });
+      g.appendChild(hitNo);
+    });
+  }
+
   svg.appendChild(g);
 }
 
@@ -6853,7 +7145,10 @@ function alterarDestinoConexao(origemVisual, destinoAntigo, destinoNovo) {
   }
 
   const tipo = tipoConexaoPorUid(oUid, dAntigo);
-  if (tipo === "sim") linha.proxSim = dNovo;
+  if (tipo === "sim") {
+    linha.proxSim = dNovo;
+    linha.simRemovido = false;
+  }
   else if (tipo === "nao") linha.proxNao = dNovo;
   else if (tipo === "extra") {
     const i = linha.extras.indexOf(dAntigo);
@@ -6888,7 +7183,11 @@ function apagarConexao(origemVisual, destinoVisual) {
   if (!linha) return;
 
   const tipo = tipoConexaoPorUid(oUid, dUid);
-  if (tipo === "sim") linha.proxSim = "";
+  if (tipo === "sim") {
+    linha.proxSim = "";
+    linha.proxSimAuto = false;
+    linha.simRemovido = true; // Sim removido de propósito: não reconectar automaticamente
+  }
   else if (tipo === "nao") linha.proxNao = "";
   else if (tipo === "extra") linha.extras = linha.extras.filter(u => u !== dUid);
   else return;
@@ -6966,6 +7265,7 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
     }
     linha.proxSim = dUid;
     linha.proxSimAuto = false;
+    linha.simRemovido = false; // Sim recriado manualmente
   } else if (tipo === "nao") {
     linha.proxNao = dUid;
   } else {
@@ -7189,6 +7489,7 @@ function mostrarBackdropEditor() {
       fecharCriadorTerminal();
       fecharCriadorConexao();
       fecharCriadorCaixa();
+      fecharMoverCaixa();
     });
     document.body.appendChild(bd);
   }
@@ -7200,10 +7501,12 @@ function esconderBackdropEditor() {
   const t = document.getElementById("criadorTerminal");
   const c = document.getElementById("criadorConexao");
   const cx = document.getElementById("criadorCaixa");
+  const mv = document.getElementById("moverCaixa");
   const algumAberto =
     (t && t.style.display === "block") ||
     (c && c.style.display === "block") ||
-    (cx && cx.style.display === "block");
+    (cx && cx.style.display === "block") ||
+    (mv && mv.style.display === "block");
   if (bd && !algumAberto) bd.classList.remove("show");
 }
 
@@ -7413,4 +7716,255 @@ function fecharCriadorCaixa() {
   const box = document.getElementById("criadorCaixa");
   if (box) box.style.display = "none";
   esconderBackdropEditor();
+}
+
+
+/* =====================================================================
+   ONDA 3 — 3b: Mover caixa pelo editor visual
+   Clicar numa caixa no modo edição abre este popover (Raia/Coluna/Linha).
+   Só altera dados (coluna/linha/área) e re-renderiza; não toca no motor.
+===================================================================== */
+function abrirMoverCaixa(uid, ev) {
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+
+  const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
+    ? ultimasAreasOrdenadas
+    : Array.from(new Set(fluxoData.map(l => l.area).filter(a => limpar(a || "") !== "")));
+
+  mostrarBackdropEditor();
+  let box = document.getElementById("moverCaixa");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "moverCaixa";
+    document.body.appendChild(box);
+  }
+
+  const optAreas = areas.map(a =>
+    `<option value="${escaparHTML(a)}" ${a === linha.area ? "selected" : ""}>${escaparHTML(a)}</option>`
+  ).join("");
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Mover caixa</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharMoverCaixa()">\u2715</button>
+    </div>
+    <div class="pop-titulo">${escaparHTML(limpar(linha.atividade || "") || "(sem nome)")}</div>
+    <div class="pop-grupo">
+      <div class="pop-label">Raia (\u00e1rea)</div>
+      <select id="moverArea" class="pop-select" onchange="aplicarMoverArea('${uid}')">${optAreas}</select>
+    </div>
+    <div class="mover-dpad">
+      <button type="button" class="dpad-btn dpad-up" title="Subir linha" onclick="nudgeMoverCaixa('${uid}',0,-1)">\u25b2</button>
+      <button type="button" class="dpad-btn dpad-left" title="Coluna \u00e0 esquerda" onclick="nudgeMoverCaixa('${uid}',-1,0)">\u25c0</button>
+      <div class="dpad-center" id="moverPosLabel">Col ${Number(linha.coluna) || 1} \u00b7 Lin ${Number(linha.linha) || 1}</div>
+      <button type="button" class="dpad-btn dpad-right" title="Coluna \u00e0 direita" onclick="nudgeMoverCaixa('${uid}',1,0)">\u25b6</button>
+      <button type="button" class="dpad-btn dpad-down" title="Descer linha" onclick="nudgeMoverCaixa('${uid}',0,1)">\u25bc</button>
+    </div>
+    <div class="mover-dica">\u25b2\u25bc muda a linha \u00b7 \u25c0\u25b6 muda a coluna</div>
+  `;
+  posicionarFlutuante(box, ev);
+}
+
+function aplicarMoverArea(uid) {
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+  const sel = document.getElementById("moverArea");
+  if (!sel || !sel.value) return;
+  linha.area = sel.value;
+  linha.colunaManual = true;
+  linha.linhaManual = true;
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+}
+
+// Move a caixa 1 passo: dCol (-1 esquerda / +1 direita), dLin (-1 sobe / +1 desce).
+// Aplica na hora e mantém o popover aberto para empurrar em sequência.
+function nudgeMoverCaixa(uid, dCol, dLin) {
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+  const novaCol = Math.max(1, (Number(linha.coluna) || 1) + dCol);
+  const novaLin = Math.max(1, (Number(linha.linha) || 1) + dLin);
+  linha.coluna = novaCol;
+  linha.colunaManual = true;
+  linha.linha = novaLin;
+  linha.linhaManual = true;
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+  const lbl = document.getElementById("moverPosLabel");
+  if (lbl) lbl.textContent = `Col ${novaCol} \u00b7 Lin ${novaLin}`;
+}
+
+function fecharMoverCaixa() {
+  const box = document.getElementById("moverCaixa");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
+}
+
+/* =====================================================================
+   ONDA 3 — A2: Validação pré-geração
+   Bloco aditivo. Lê apenas de fluxoData + estado do editor.
+   NÃO altera o motor de roteamento nem a geração do SVG (online/Excel).
+===================================================================== */
+function validarFluxo() {
+  const erros = [];
+  const avisos = [];
+  const linhas = Array.isArray(fluxoData) ? fluxoData : [];
+
+  // Linhas que viram etapas de verdade (mesma regra do obterEtapasDaTabela)
+  const validas = linhas.filter(l => limpar(l.atividade || "") !== "");
+  const uidsValidos = new Set(validas.map(l => l.uid));
+
+  // Mapas uid <-> id visual (mesma ordem do export)
+  const uidParaIdVisual = {};
+  const idVisualParaUid = {};
+  validas.forEach((l, i) => {
+    const idv = gerarIdVisual(i);
+    uidParaIdVisual[l.uid] = idv;
+    idVisualParaUid[idv] = l.uid;
+  });
+
+  const nome = (uid) => {
+    const l = linhas.find(x => x.uid === uid);
+    const a = l ? limpar(l.atividade || "") : "";
+    return a ? `"${a}"` : "(sem nome)";
+  };
+
+  // 1) Linha com dados mas sem atividade -> será ignorada
+  linhas.forEach((l, i) => {
+    const semAtividade = limpar(l.atividade || "") === "";
+    const temAlgo = limpar(l.area || "") || limpar(l.tipo || "") ||
+                    limpar(l.sistema || "") || limpar(l.tempo || "");
+    if (semAtividade && temAlgo) {
+      avisos.push(`Linha ${i + 1} tem dados preenchidos, mas está sem atividade — será ignorada no fluxo.`);
+    }
+  });
+
+  const recebeEntrada = new Set();
+  const temSaida = new Set();
+
+  validas.forEach(l => {
+    const saidas = [];
+    if (l.proxSim) saidas.push(["Próxima", l.proxSim]);
+    if (l.proxNao) saidas.push(["Não", l.proxNao]);
+    (Array.isArray(l.extras) ? l.extras : []).forEach(ex => { if (ex) saidas.push(["Extra", ex]); });
+
+    if (saidas.length) temSaida.add(l.uid);
+
+    // 2) Referência quebrada: aponta p/ caixa que não existe (ou foi esvaziada)
+    saidas.forEach(([rotulo, alvoUid]) => {
+      if (!uidsValidos.has(alvoUid)) {
+        erros.push(`A caixa ${nome(l.uid)} aponta (${rotulo}) para uma caixa que não existe mais.`);
+      } else {
+        recebeEntrada.add(alvoUid);
+      }
+    });
+
+    // 3) Decisão: precisa do "Não" e o Sim/Não não podem ir para a mesma caixa
+    if (ehDecisao(l)) {
+      const temNao = !!l.proxNao || (Array.isArray(l.extras) && l.extras.some(Boolean));
+      if (!temNao) {
+        avisos.push(`A decisão ${nome(l.uid)} não tem o caminho de "Não" definido.`);
+      }
+      if (l.proxSim && l.proxNao && l.proxSim === l.proxNao) {
+        avisos.push(`A decisão ${nome(l.uid)} tem "Sim" e "Não" apontando para a mesma caixa — a decisão não está ramificando.`);
+      }
+    }
+  });
+
+  // Início padrão entra na primeira caixa válida (salvo se redirecionado por inicioAlvo)
+  if (validas.length && !(typeof inicioAlvo !== "undefined" && inicioAlvo)) {
+    recebeEntrada.add(validas[0].uid);
+  }
+
+  // inicioAlvo / fimOrigem (id visual)
+  if (typeof inicioAlvo !== "undefined" && inicioAlvo) {
+    if (!idVisualParaUid[inicioAlvo]) {
+      erros.push(`O "Início" foi direcionado para uma caixa que não existe (${inicioAlvo}).`);
+    } else {
+      recebeEntrada.add(idVisualParaUid[inicioAlvo]);
+    }
+  }
+  if (typeof fimOrigem !== "undefined" && fimOrigem) {
+    if (!idVisualParaUid[fimOrigem]) {
+      erros.push(`O "Fim" foi ligado a uma origem que não existe (${fimOrigem}).`);
+    } else {
+      temSaida.add(idVisualParaUid[fimOrigem]);
+    }
+  }
+
+  // Terminais extras (alvo = id visual)
+  (Array.isArray(terminais) ? terminais : []).forEach(t => {
+    if (!t || !t.alvo) return;
+    const uid = idVisualParaUid[t.alvo];
+    if (!uid) {
+      erros.push(`Um terminal ${t.tipo === "inicio" ? "Início" : "Fim"} extra aponta para uma caixa que não existe (${t.alvo}).`);
+      return;
+    }
+    if (t.tipo === "inicio") recebeEntrada.add(uid);
+    else temSaida.add(uid);
+  });
+
+  // 4) Conexões faltando: sem entrada, sem saída, ou solta
+  const lastUid = validas.length ? validas[validas.length - 1].uid : null;
+  validas.forEach(l => {
+    const temEnt = recebeEntrada.has(l.uid);
+    // A última caixa vai ao "Fim" automaticamente; semSaida = saída removida de propósito.
+    const temSai = temSaida.has(l.uid) || l.uid === lastUid || !!l.semSaida;
+    if (!temEnt && !temSai) {
+      avisos.push(`A caixa ${nome(l.uid)} está solta — sem entrada e sem saída.`);
+    } else if (!temEnt) {
+      avisos.push(`A caixa ${nome(l.uid)} não recebe nenhuma conexão de entrada.`);
+    } else if (!temSai) {
+      avisos.push(`A caixa ${nome(l.uid)} não tem conexão de saída — não segue para nenhuma próxima atividade.`);
+    }
+  });
+
+  return { erros, avisos };
+}
+
+function renderPainelValidacao(resultado) {
+  const painel = document.getElementById("painelValidacao");
+  if (!painel) return;
+  const r = resultado || { erros: [], avisos: [] };
+
+  if (!r.erros.length && !r.avisos.length) {
+    painel.className = "validacao-ok";
+    painel.innerHTML = "&#10003; Nenhum problema encontrado no fluxo.";
+    painel.style.display = "block";
+    return;
+  }
+
+  let html = "";
+  if (r.erros.length) {
+    html += `<div class="val-grupo val-erros"><div class="val-titulo">&#9888; ${r.erros.length} ${r.erros.length === 1 ? "erro" : "erros"}</div><ul>`;
+    r.erros.forEach(e => { html += `<li>${escaparHTML(e)}</li>`; });
+    html += `</ul></div>`;
+  }
+  if (r.avisos.length) {
+    html += `<div class="val-grupo val-avisos"><div class="val-titulo">${r.avisos.length} ${r.avisos.length === 1 ? "aviso" : "avisos"}</div><ul>`;
+    r.avisos.forEach(a => { html += `<li>${escaparHTML(a)}</li>`; });
+    html += `</ul></div>`;
+  }
+  painel.className = "";
+  painel.innerHTML = html;
+  painel.style.display = "block";
+}
+
+function validarFluxoManual() {
+  if (!fluxoData || !fluxoData.length) {
+    mostrarToast("Preencha a tabela antes de validar.", "alerta");
+    return;
+  }
+  const r = validarFluxo();
+  renderPainelValidacao(r);
+  if (r.erros.length) {
+    mostrarToast(`${r.erros.length} erro(s) encontrado(s) — veja o painel.`, "erro");
+  } else if (r.avisos.length) {
+    mostrarToast(`${r.avisos.length} aviso(s). O fluxo pode ser gerado.`, "alerta");
+  } else {
+    mostrarToast("Fluxo sem problemas.", "ok");
+  }
 }

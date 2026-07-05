@@ -340,75 +340,22 @@ button:hover {
   margin-top: 2px;
 }
 
-/* Ajuste de largura da tabela de digitação */
+/* Ajuste de largura da tabela de digitação (Onda 3 / A3 — 8 colunas) */
 #tabelaFluxo {
   table-layout: fixed;
-  min-width: 1650px;
+  min-width: 1140px;
 }
 
-#tabelaFluxo th:nth-child(1),
-#tabelaFluxo td:nth-child(1) {
-  width: 48px;
-}
+#tabelaFluxo th:nth-child(1), #tabelaFluxo td:nth-child(1) { width: 130px; } /* Área */
+#tabelaFluxo th:nth-child(2), #tabelaFluxo td:nth-child(2) { width: 360px; } /* Atividade */
+#tabelaFluxo th:nth-child(3), #tabelaFluxo td:nth-child(3) { width: 120px; } /* Tipo */
+#tabelaFluxo th:nth-child(4), #tabelaFluxo td:nth-child(4) { width: 120px; } /* Sistema */
+#tabelaFluxo th:nth-child(5), #tabelaFluxo td:nth-child(5) { width: 80px; }  /* Tempo */
+#tabelaFluxo th:nth-child(6), #tabelaFluxo td:nth-child(6) { width: 90px; }  /* Cor */
+#tabelaFluxo th:nth-child(7), #tabelaFluxo td:nth-child(7) { width: 230px; } /* Não */
+#tabelaFluxo th:nth-child(8), #tabelaFluxo td:nth-child(8) { width: 150px; } /* Ações */
 
-#tabelaFluxo th:nth-child(2),
-#tabelaFluxo td:nth-child(2) {
-  width: 32px;
-}
-
-#tabelaFluxo th:nth-child(3),
-#tabelaFluxo td:nth-child(3) {
-  width: 90px;
-}
-
-#tabelaFluxo th:nth-child(4),
-#tabelaFluxo td:nth-child(4) {
-  width: 360px;
-}
-
-#tabelaFluxo th:nth-child(5),
-#tabelaFluxo td:nth-child(5) {
-  width: 90px;
-}
-
-#tabelaFluxo th:nth-child(6),
-#tabelaFluxo td:nth-child(6) {
-  width: 120px;
-}
-
-#tabelaFluxo th:nth-child(7),
-#tabelaFluxo td:nth-child(7) {
-  width: 80px;
-}
-
-#tabelaFluxo th:nth-child(8),
-#tabelaFluxo td:nth-child(8),
-#tabelaFluxo th:nth-child(9),
-#tabelaFluxo td:nth-child(9) {
-  width: 70px;
-}
-
-#tabelaFluxo th:nth-child(10),
-#tabelaFluxo td:nth-child(10) {
-  width: 70px;
-}
-
-#tabelaFluxo th:nth-child(11),
-#tabelaFluxo td:nth-child(11),
-#tabelaFluxo th:nth-child(12),
-#tabelaFluxo td:nth-child(12) {
-  width: 260px;
-}
-
-#tabelaFluxo th:nth-child(13),
-#tabelaFluxo td:nth-child(13) {
-  width: 90px;
-}
-
-#tabelaFluxo th:nth-child(14),
-#tabelaFluxo td:nth-child(14) {
-  width: 145px;
-}
+.cel-vazia { color: #bbb; }
 
 /* Reduz apenas a visualização na tela, sem mexer no SVG exportado */
 #diagram {
@@ -746,4 +693,157 @@ button:hover {
   padding: 4px 10px;
   border-radius: 5px;
   margin-right: 10px;
+}
+
+
+/* =========================
+   VALIDAÇÃO PRÉ-GERAÇÃO (Onda 3 / A2)
+========================= */
+#painelValidacao {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+#painelValidacao.validacao-ok {
+  background: #e7f6e8;
+  color: #2e7d32;
+  border: 1px solid #bfe3c0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-weight: bold;
+}
+
+.val-grupo {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.val-grupo ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.val-grupo li {
+  margin-bottom: 3px;
+}
+
+.val-titulo {
+  font-weight: bold;
+  font-size: 13px;
+}
+
+.val-erros {
+  background: #fbe7e4;
+  border-color: #efc0ba;
+  color: #a3271b;
+}
+
+.val-erros .val-titulo {
+  color: #c0392b;
+}
+
+.val-avisos {
+  background: #fbf3df;
+  border-color: #e8d9a8;
+  color: #6b5a1e;
+}
+
+.val-avisos .val-titulo {
+  color: #b8860b;
+}
+
+
+/* =========================
+   MOVER CAIXA (Onda 3 / 3b)
+========================= */
+#moverCaixa {
+  position: fixed;
+  z-index: 10001;
+  display: none;
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+  width: 260px;
+  font-size: 13px;
+}
+
+#moverCaixa .pop-criar {
+  background: #1d6fe0;
+  color: #fff;
+  width: 100%;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+#moverCaixa .pop-criar:hover { background: #1559b8; }
+
+.pop-grupo-linha { display: flex; gap: 8px; }
+.pop-grupo-linha > div { flex: 1; }
+
+
+/* ===== D-pad do "Mover caixa" (Onda 3 / 3b) ===== */
+.mover-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  justify-items: center;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+
+.dpad-up { grid-column: 2; grid-row: 1; }
+.dpad-left { grid-column: 1; grid-row: 2; }
+.dpad-center { grid-column: 2; grid-row: 2; }
+.dpad-right { grid-column: 3; grid-row: 2; }
+.dpad-down { grid-column: 2; grid-row: 3; }
+
+.dpad-btn {
+  width: 42px;
+  height: 36px;
+  background: #1d6fe0;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dpad-btn:hover { background: #1559b8; }
+
+.dpad-center {
+  font-size: 11px;
+  font-weight: bold;
+  color: #1d3557;
+  text-align: center;
+  min-width: 78px;
+}
+
+.mover-dica {
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+  margin-top: 2px;
+}
+
+
+/* ===== Filtro de raia na Análise (Onda 3 / C2.2) ===== */
+.analise-filtro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.analise-filtro label { font-weight: bold; }
+
+.analise-filtro select {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid #bfbfbf;
 }

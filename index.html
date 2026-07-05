@@ -45,6 +45,16 @@
         <label for="gestor">Gestor</label>
         <input id="gestor" type="text" placeholder="Ex.: Nome do gestor imediato" />
       </div>
+
+      <div class="field">
+        <label for="valorFTE">Valor FTE (h/mês)</label>
+        <input id="valorFTE" type="text" placeholder="Ex.: 168" />
+      </div>
+
+      <div class="field">
+        <label for="volumetria">Volumetria (exec./mês)</label>
+        <input id="volumetria" type="text" placeholder="Ex.: 250" />
+      </div>
     </div>
 
     <h3>Monte o fluxo na tabela</h3>
@@ -60,19 +70,13 @@
       <table id="tabelaFluxo">
         <thead>
           <tr>
-            <th>Ordem</th>
-            <th>ID</th>
             <th>Área</th>
             <th>Atividade</th>
             <th>Tipo</th>
             <th>Sistema</th>
             <th>Tempo</th>
-            <th>Col</th>
-            <th>Linha</th>
             <th>Cor</th>
-            <th>Próxima</th>
             <th>Não</th>
-            <th>Extras</th>
             <th>Ações</th>
           </tr>
         </thead>
@@ -112,6 +116,8 @@
         <input type="file" id="importarProjetoInput" accept="application/json,.json" style="display:none" onchange="importarProjetoJSON(event)" />
       </div>
     </div>
+
+   <div id="painelValidacao" style="display:none"></div>
 
    <div class="diagram-scroll-top" id="diagramScrollTop">
   <div id="diagramScrollTopInner"></div>
