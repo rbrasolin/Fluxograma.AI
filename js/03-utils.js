@@ -39,11 +39,6 @@ function corHex(cor) {
   return mapa[cor] || "#ffffff";
 }
 
-function ehCabecalho(colunas) {
-  if (!colunas || colunas.length === 0) return false;
-  return limpar(colunas[0]).toLowerCase() === "ordem";
-}
-
 function tempoParaSegundos(tempo) {
   if (!tempo) return 0;
   tempo = String(tempo).trim();
