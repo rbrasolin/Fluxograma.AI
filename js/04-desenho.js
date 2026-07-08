@@ -406,6 +406,11 @@ function desenharRaias(svg, areasOrdenadas, lanes, svgWidth) {
     header.setAttribute("fill", CONFIG.laneHeaderFill);
     header.setAttribute("stroke", CONFIG.laneBorder);
     header.setAttribute("stroke-width", "1");
+    header.setAttribute("data-raia", area);
+    header.setAttribute("class", "lane-header-clicavel");
+    const dicaRaia = criarElementoSVG("title");
+    dicaRaia.textContent = "Clique para reordenar a raia";
+    header.appendChild(dicaRaia);
     g.appendChild(header);
 
     const separator = criarElementoSVG("line");
@@ -429,9 +434,29 @@ function desenharRaias(svg, areasOrdenadas, lanes, svgWidth) {
     texto.setAttribute("fill", "#333333");
     texto.setAttribute("transform", `rotate(-90 ${tx} ${ty})`);
     texto.textContent = area;
+    texto.setAttribute("data-raia", area);
     g.appendChild(texto);
 
     svg.appendChild(g);
+  });
+
+  configurarCliqueRaiasTela();
+}
+
+// Delegação de clique nas raias — SOMENTE na tela. Registra no #diagram uma
+// única vez (guard via dataset). Ao clicar no cabeçalho/nome de uma raia
+// (elementos com data-raia), abre o popover de reordenação. Não afeta o SVG
+// do Excel, que é desenhado por desenharRaiasExcel.
+function configurarCliqueRaiasTela() {
+  const diagram = document.getElementById("diagram");
+  if (!diagram || diagram.dataset.raiaClickConfigurado === "1") return;
+  diagram.dataset.raiaClickConfigurado = "1";
+  diagram.addEventListener("click", (ev) => {
+    // Só reordena raias com o modo "Ajustar fluxo" ativo — mesmo padrão das caixas/setas.
+    if (typeof modoEdicaoAtivo !== "undefined" && !modoEdicaoAtivo) return;
+    const alvo = (ev.target && ev.target.closest) ? ev.target.closest("[data-raia]") : null;
+    const nome = alvo && alvo.getAttribute("data-raia");
+    if (nome && typeof abrirMoverRaia === "function") abrirMoverRaia(nome, ev);
   });
 }
 

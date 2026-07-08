@@ -31,6 +31,8 @@ function alternarModoEdicao() {
   }
 
   modoEdicaoAtivo = !modoEdicaoAtivo;
+  const _diag = document.getElementById("diagram");
+  if (_diag) _diag.classList.toggle("diagram-editando", modoEdicaoAtivo);
   const btn = document.getElementById("btnAjustarFluxo");
 
   if (modoEdicaoAtivo) {
@@ -286,16 +288,6 @@ function renderPainelRaias() {
     return;
   }
 
-  const itens = areas.map((nome, i) => `
-    <div class="raia-item">
-      <span class="raia-pos">${i + 1}º</span>
-      <span class="raia-nome" title="${escaparHTML(nome)}">${escaparHTML(nome)}</span>
-      <span class="raia-acoes">
-        <button type="button" ${i === 0 ? "disabled" : ""} onclick="moverRaia('${escaparHTML(nome).replace(/'/g, "\\'")}', -1)" title="Subir">↑</button>
-        <button type="button" ${i === areas.length - 1 ? "disabled" : ""} onclick="moverRaia('${escaparHTML(nome).replace(/'/g, "\\'")}', 1)" title="Descer">↓</button>
-      </span>
-    </div>`).join("");
-
   // Controles de Início/Fim (ponto 4)
   const atividades = listaAtividadesSelect();
   const opcInicio = [`<option value="">Primeira atividade (padrão)</option>`]
@@ -334,16 +326,12 @@ function renderPainelRaias() {
     </div>`;
 
   painel.innerHTML = `
-    <div class="raias-header">
-      <span>Ordem das raias</span>
-      <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
-    </div>
-    <div class="raias-lista">${itens}</div>
     ${blocoTerminais}
     <div class="raias-dica">
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorCaixa(event)">+ Nova caixa</button>
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao(event)">+ Nova seta</button>
-      <span>Clique numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
+      <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
+      <span>Clique numa raia para reordená-la, ou numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
     </div>
   `;
 }
@@ -362,6 +350,70 @@ function moverRaia(nome, direcao) {
   ordemRaias = base;
   salvarEstadoLocal(true);
   gerarFluxo(); // re-render reaplica camada e painel
+}
+
+/* =====================================================================
+   Popover "Mover raia" — reordenação por clique no cabeçalho da raia.
+   Substitui o antigo painel "Ordem das raias". Reusa moverRaia() e o mesmo
+   padrão visual/posicionamento do popover "Mover caixa".
+===================================================================== */
+function abrirMoverRaia(nome, ev) {
+  const n = String(nome);
+  mostrarBackdropEditor();
+
+  let box = document.getElementById("moverRaia");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "moverRaia";
+    document.body.appendChild(box);
+  }
+
+  const nEsc = escaparHTML(n);
+  const nAttr = n.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Mover raia</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharMoverRaia()">\u2715</button>
+    </div>
+    <div class="pop-titulo">${nEsc}</div>
+    <div class="raia-mover-acoes">
+      <button type="button" class="raia-mv-btn raia-mv-up" onclick="nudgeMoverRaia('${nAttr}',-1)">\u25b2 Subir</button>
+      <button type="button" class="raia-mv-btn raia-mv-down" onclick="nudgeMoverRaia('${nAttr}',1)">\u25bc Descer</button>
+    </div>
+  `;
+
+  // Abre no ponto do clique (sobre a raia), não no rodapé do #diagram.
+  posicionarFlutuante(box, { clientX: ev && ev.clientX, clientY: ev && ev.clientY });
+  atualizarMoverRaia(n);
+}
+
+// Recalcula os botões desabilitados conforme a ordem atual das raias.
+function atualizarMoverRaia(nome) {
+  const box = document.getElementById("moverRaia");
+  if (!box || box.style.display === "none") return;
+
+  const ordem = (ordemRaias && ordemRaias.length)
+    ? ordemRaias
+    : (ultimasAreasOrdenadas || []);
+  const i = ordem.indexOf(nome);
+
+  const up = box.querySelector(".raia-mv-up");
+  const down = box.querySelector(".raia-mv-down");
+  if (up) up.disabled = (i <= 0);
+  if (down) down.disabled = (i === -1 || i >= ordem.length - 1);
+}
+
+// Move a raia 1 posição e mantém o popover aberto para reordenar em sequência.
+function nudgeMoverRaia(nome, direcao) {
+  moverRaia(nome, direcao); // salva estado + re-renderiza o fluxo
+  atualizarMoverRaia(nome);
+}
+
+function fecharMoverRaia() {
+  const box = document.getElementById("moverRaia");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
 }
 
 function resetarAjustesFluxo() {
@@ -832,6 +884,7 @@ function mostrarBackdropEditor() {
       fecharCriadorConexao();
       fecharCriadorCaixa();
       fecharMoverCaixa();
+      fecharMoverRaia();
     });
     document.body.appendChild(bd);
   }
@@ -844,11 +897,13 @@ function esconderBackdropEditor() {
   const c = document.getElementById("criadorConexao");
   const cx = document.getElementById("criadorCaixa");
   const mv = document.getElementById("moverCaixa");
+  const mr = document.getElementById("moverRaia");
   const algumAberto =
     (t && t.style.display === "block") ||
     (c && c.style.display === "block") ||
     (cx && cx.style.display === "block") ||
-    (mv && mv.style.display === "block");
+    (mv && mv.style.display === "block") ||
+    (mr && mr.style.display === "block");
   if (bd && !algumAberto) bd.classList.remove("show");
 }
 

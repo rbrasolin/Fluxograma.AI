@@ -599,7 +599,14 @@ function focarProximoCampoTabela(uid, campo, voltar = false) {
   if (indiceAtual === -1) return;
 
   const proximoIndice = voltar ? indiceAtual - 1 : indiceAtual + 1;
-  if (proximoIndice < 0 || proximoIndice >= campos.length) return;
+  if (proximoIndice < 0) return;
+  if (proximoIndice >= campos.length) {
+    // Último campo navegável da última linha (ex.: "Cor" numa atividade):
+    // avança criando/focando a próxima linha, para não exigir clique em
+    // "+ Nova etapa". Shift+Tab (voltar) não cria nada.
+    if (!voltar) irParaProximaLinhaOuCriar(uid);
+    return;
+  }
 
   const proximoCampo = campos[proximoIndice];
   proximoCampo.focus();
