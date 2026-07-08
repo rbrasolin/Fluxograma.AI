@@ -69,7 +69,7 @@ body {
 /* ============ Layout raiz ============ */
 .page {
   width: calc(100vw - 48px);
-  max-width: 1560px;
+  max-width: none;
   margin: 24px auto 64px;
   padding: 28px 30px 34px;
   background: var(--surface);
