@@ -7,8 +7,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.5.0/dist/svg2pdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-  <link rel="stylesheet" href="estilo.css?v=10" />
+  <link rel="stylesheet" href="estilo.css?v=15" />
 </head>
 <body>
 
@@ -57,13 +58,22 @@
       </div>
     </div>
 
-    <h3>Monte o fluxo na tabela</h3>
+    <div class="montar-fluxo-topo">
+      <div class="montar-bloco">
+        <h3>Monte o fluxo na tabela</h3>
+        <div class="actions">
+          <button type="button" onclick="adicionarLinha()">+ Nova etapa</button>
+          <button type="button" onclick="gerarFluxo()">GERAR FLUXO</button>
+          <button type="button" class="secondary" onclick="limparTudo()">LIMPAR</button>
+        </div>
+      </div>
 
-    <div class="actions">
-      <button type="button" onclick="adicionarLinha()">+ Nova etapa</button>
-      <button type="button" onclick="gerarFluxo()">GERAR FLUXO</button>
-      <button type="button" class="secondary" onclick="limparTudo()">LIMPAR</button>
-      
+      <div class="montar-bloco">
+        <h3>Monte seu fluxo no Excel</h3>
+        <div class="actions">
+          <button type="button" onclick="baixarModeloExcel()">Baixar modelo Excel</button>
+        </div>
+      </div>
     </div>
 
     <div class="tabela-wrap">
@@ -86,25 +96,17 @@
 
     <hr>
 
-    <h3>Ou cole a tabela do Excel</h3>
-    <textarea id="entrada" placeholder="Cole aqui a tabela copiada do Excel"></textarea>
-
-    <div class="actions">
-      <button type="button" onclick="importarExcel()">IMPORTAR DO EXCEL</button>
-    </div>
-
-    <hr>
-
     <div class="section-header">
       <h3>Fluxo</h3>
       <div class="actions inline-actions">
         <button type="button" onclick="gerarFluxo()">GERAR FLUXO</button>
         <button type="button" id="btnAjustarFluxo" class="btn-editar" onclick="alternarModoEdicao()">Ajustar fluxo</button>
+        <button type="button" id="btnDesfazer" class="secondary" onclick="desfazer()" title="Desfazer (Ctrl+Z fora dos campos)" disabled>↶ Desfazer</button>
+        <button type="button" id="btnRefazer" class="secondary" onclick="refazer()" title="Refazer (Ctrl+Y fora dos campos)" disabled>↷ Refazer</button>
         <button type="button" onclick="baixarSVG()">Baixar Fluxo</button>
         <button type="button" onclick="baixarSVGExcel()">Baixar SVG Excel</button>
         <button type="button" onclick="baixarPNG()">Baixar PNG</button>
         <button type="button" onclick="baixarAnalisePDF()">Baixar Análise</button>
-        <button class="btn-topo" onclick="baixarTemplateExcel()">BAIXAR TEMPLATE EXCEL</button>
       </div>
     </div>
 
@@ -114,6 +116,10 @@
         <button type="button" onclick="exportarProjetoJSON()">Exportar Projeto (.json)</button>
         <button type="button" class="secondary" onclick="document.getElementById('importarProjetoInput').click()">Importar Projeto (.json)</button>
         <input type="file" id="importarProjetoInput" accept="application/json,.json" style="display:none" onchange="importarProjetoJSON(event)" />
+
+        <button type="button" onclick="exportarExcelNativo()">Exportar Excel</button>
+        <button type="button" class="secondary" onclick="document.getElementById('importarExcelInput').click()">Importar Excel</button>
+        <input type="file" id="importarExcelInput" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none" onchange="importarExcelNativo(event)" />
       </div>
     </div>
 
@@ -137,17 +143,19 @@
   </div>
 
   <!-- script.js modularizado (D1). Ordem = ordem de leitura do monolito original. NAO reordenar. -->
-  <script src="js/01-estado.js?v=10"></script>
-  <script src="js/02-tabela.js?v=10"></script>
-  <script src="js/03-utils.js?v=10"></script>
-  <script src="js/04-desenho.js?v=10"></script>
-  <script src="js/05-roteamento.js?v=10"></script>
-  <script src="js/06-analise.js?v=10"></script>
-  <script src="js/07-gerar-fluxo.js?v=10"></script>
-  <script src="js/08-excel.js?v=10"></script>
-  <script src="js/09-pdf.js?v=10"></script>
-  <script src="js/10-export-app.js?v=10"></script>
-  <script src="js/11-editor.js?v=10"></script>
-  <script src="js/12-validacao.js?v=10"></script>
+  <script src="js/01-estado.js?v=15"></script>
+  <script src="js/02-tabela.js?v=15"></script>
+  <script src="js/03-utils.js?v=15"></script>
+  <script src="js/04-desenho.js?v=15"></script>
+  <script src="js/05-roteamento.js?v=15"></script>
+  <script src="js/06-analise.js?v=15"></script>
+  <script src="js/07-gerar-fluxo.js?v=15"></script>
+  <script src="js/08-excel.js?v=15"></script>
+  <script src="js/09-pdf.js?v=15"></script>
+  <script src="js/10-export-app.js?v=15"></script>
+  <script src="js/11-editor.js?v=15"></script>
+  <script src="js/12-validacao.js?v=15"></script>
+  <script src="js/13-undo.js?v=15"></script>
+  <script src="js/14-excel-io.js?v=15"></script>
 </body>
 </html>
