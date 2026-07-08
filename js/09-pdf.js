@@ -487,6 +487,74 @@ async function _baixarAnalisePDFInterno() {
     });
   }
 
+  // Handoffs entre áreas — mesmo recorte de raia da tela.
+  const handoffsPdf = calcularHandoffs();
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
+  if (!filtroAnaliseArea) {
+    doc.text(
+      `Handoffs entre áreas: ${handoffsPdf.total}  |  Áreas envolvidas: ${handoffsPdf.areasEnvolvidas}  |  Interfaces entre áreas: ${handoffsPdf.pares.length}`,
+      margem,
+      y
+    );
+  } else {
+    const _saidaN = handoffsPdf.pares.filter(p => p.origem === filtroAnaliseArea).reduce((s, p) => s + p.count, 0);
+    const _entradaN = handoffsPdf.pares.filter(p => p.destino === filtroAnaliseArea).reduce((s, p) => s + p.count, 0);
+    doc.text(
+      `Handoffs da raia: ${_saidaN + _entradaN}  |  Saídas: ${_saidaN}  |  Entradas: ${_entradaN}`,
+      margem,
+      y
+    );
+  }
+  y += 6;
+
+  if (!filtroAnaliseArea && handoffsPdf.pares.length) {
+    y = desenharTabelaPDF(doc, {
+      titulo: "Handoffs entre Áreas",
+      columns: [
+        { header: "De", key: "de", weight: 4, align: "left" },
+        { header: "Para", key: "para", weight: 4, align: "left" },
+        { header: "Handoffs", key: "qtd", weight: 1.5, align: "center" }
+      ],
+      rows: handoffsPdf.pares.map(p => ({
+        de: p.origem,
+        para: p.destino,
+        qtd: String(p.count)
+      })),
+      x: margem,
+      yInicial: y,
+      larguraTotal: larguraUtil,
+      margem,
+      pageHeight
+    });
+  } else if (filtroAnaliseArea) {
+    const linhasHandoff = handoffsPdf.pares
+      .filter(p => p.origem === filtroAnaliseArea)
+      .map(p => ({ sentido: "Saída", outra: p.destino, qtd: String(p.count) }))
+      .concat(
+        handoffsPdf.pares
+          .filter(p => p.destino === filtroAnaliseArea)
+          .map(p => ({ sentido: "Entrada", outra: p.origem, qtd: String(p.count) }))
+      );
+    if (linhasHandoff.length) {
+      y = desenharTabelaPDF(doc, {
+        titulo: `Handoffs - Raia ${filtroAnaliseArea}`,
+        columns: [
+          { header: "Sentido", key: "sentido", weight: 2, align: "center" },
+          { header: "Outra área", key: "outra", weight: 5.5, align: "left" },
+          { header: "Handoffs", key: "qtd", weight: 1.5, align: "center" }
+        ],
+        rows: linhasHandoff,
+        x: margem,
+        yInicial: y,
+        larguraTotal: larguraUtil,
+        margem,
+        pageHeight
+      });
+    }
+  }
+
   y = desenharTabelaPDF(doc, {
     titulo: "Top 3 Gargalos",
     columns: [

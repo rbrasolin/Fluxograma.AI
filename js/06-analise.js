@@ -226,6 +226,128 @@ function renderFTEResumo(fte, filtroArea) {
   return html;
 }
 
+/* =====================================================================
+   ONDA 3 — Handoffs entre áreas
+   Um handoff é toda conexão (Sim/Não/extra) em que a raia de origem é
+   diferente da raia de destino. Métrica-chave de business case: cada
+   troca de bastão entre áreas é fonte de espera, retrabalho e perda de
+   contexto. O grafo é sempre montado sobre o fluxo INTEIRO; o filtro de
+   raia decide apenas o recorte exibido. Usa os mesmos helpers do motor
+   (quebrarListaIds / destinoEhValido) para ler as conexões.
+===================================================================== */
+function calcularHandoffs() {
+  const etapas = obterEtapasDaTabela();
+  const idsValidos = new Set(etapas.map(e => e.id));
+  const etapaPorId = {};
+  etapas.forEach(e => { etapaPorId[e.id] = e; });
+
+  const parCount = {};        // "Origem\u0000Destino" -> count
+  let total = 0;
+  let totalConexoes = 0;
+
+  etapas.forEach(etapa => {
+    const areaOrigem = etapa.area || "Sem \u00c1rea";
+    const destinos = []
+      .concat(quebrarListaIds(etapa.proxSim))
+      .concat(quebrarListaIds(etapa.proxNao))
+      .concat(quebrarListaIds(etapa.conexoesExtras))
+      .filter(d => destinoEhValido(d, idsValidos));
+
+    // Deduplica por nó de destino: a mesma transição origem->destino conta 1x,
+    // mesmo que apareça em proxSim e em conexoesExtras ao mesmo tempo
+    // (ex.: "Sim = próxima da ordem" reaplicado sobre uma conexão extra já existente).
+    const destinosVistos = new Set();
+
+    destinos.forEach(destinoId => {
+      if (destinosVistos.has(destinoId)) return;
+      destinosVistos.add(destinoId);
+      const destino = etapaPorId[destinoId];
+      if (!destino) return;
+      totalConexoes++;
+      const areaDestino = destino.area || "Sem \u00c1rea";
+      if (areaOrigem !== areaDestino) {
+        total++;
+        const chave = areaOrigem + "\u0000" + areaDestino;
+        parCount[chave] = (parCount[chave] || 0) + 1;
+      }
+    });
+  });
+
+  const pares = Object.entries(parCount)
+    .map(([chave, count]) => {
+      const partes = chave.split("\u0000");
+      return { origem: partes[0], destino: partes[1], count };
+    })
+    .sort((a, b) => (b.count - a.count) || a.origem.localeCompare(b.origem, "pt-BR"));
+
+  const areasSet = new Set();
+  pares.forEach(p => { areasSet.add(p.origem); areasSet.add(p.destino); });
+
+  return { total, totalConexoes, pares, areasEnvolvidas: areasSet.size };
+}
+
+function renderHandoffs(h, filtroArea) {
+  // Sem nenhum handoff no processo inteiro.
+  if (!h || h.total === 0) {
+    const escopo = filtroArea ? `Raia: ${escaparHTML(filtroArea)}` : "Processo inteiro";
+    return `<div class="exec-card"><div class="exec-card-title">Handoffs entre \u00e1reas \u2014 ${escopo}</div>
+      <div class="exec-summary-grid">
+        <div class="exec-summary-item"><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">0</div></div>
+      </div>
+      <div class="analytics-item">Nenhuma troca de bast\u00e3o entre \u00e1reas neste fluxo.</div>
+    </div>`;
+  }
+
+  // Escopo "Todos" — matriz completa área → área.
+  if (!filtroArea) {
+    const rows = h.pares.map(p =>
+      `<tr><td>${escaparHTML(p.origem)}</td><td>${escaparHTML(p.destino)}</td><td class="td-center">${p.count}</td></tr>`
+    ).join("");
+    return `<div class="exec-card"><div class="exec-card-title">Handoffs entre \u00e1reas \u2014 Processo inteiro</div>
+      <div class="exec-summary-grid">
+        <div class="exec-summary-item"><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">${h.total}</div></div>
+        <div class="exec-summary-item"><div class="exec-summary-label">\u00c1reas envolvidas</div><div class="exec-summary-value">${h.areasEnvolvidas}</div></div>
+        <div class="exec-summary-item"><div class="exec-summary-label">Interfaces entre \u00e1reas</div><div class="exec-summary-value">${h.pares.length}</div></div>
+      </div>
+      <div class="exec-table-block"><div class="exec-table-title">Handoffs detalhado (\u00e1rea \u2192 \u00e1rea)</div>
+        <div class="exec-table-wrap"><table class="exec-table">
+          <thead><tr><th>De</th><th>Para</th><th class="th-center">Handoffs</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+  }
+
+  // Escopo de uma raia — entradas e saídas dela.
+  const saida = h.pares.filter(p => p.origem === filtroArea);
+  const entrada = h.pares.filter(p => p.destino === filtroArea);
+  const totalSaida = saida.reduce((s, p) => s + p.count, 0);
+  const totalEntrada = entrada.reduce((s, p) => s + p.count, 0);
+
+  const rowsSaida = saida.map(p =>
+    `<tr><td class="td-center">Sa\u00edda</td><td>${escaparHTML(p.destino)}</td><td class="td-center">${p.count}</td></tr>`
+  );
+  const rowsEntrada = entrada.map(p =>
+    `<tr><td class="td-center">Entrada</td><td>${escaparHTML(p.origem)}</td><td class="td-center">${p.count}</td></tr>`
+  );
+  const corpo = rowsSaida.concat(rowsEntrada).join("")
+    || '<tr><td colspan="3">Nenhuma troca com outras \u00e1reas.</td></tr>';
+
+  return `<div class="exec-card"><div class="exec-card-title">Handoffs \u2014 Raia: ${escaparHTML(filtroArea)}</div>
+    <div class="exec-summary-grid">
+      <div class="exec-summary-item"><div class="exec-summary-label">Total da raia</div><div class="exec-summary-value">${totalSaida + totalEntrada}</div></div>
+      <div class="exec-summary-item"><div class="exec-summary-label">Sa\u00eddas (para outras)</div><div class="exec-summary-value">${totalSaida}</div></div>
+      <div class="exec-summary-item"><div class="exec-summary-label">Entradas (de outras)</div><div class="exec-summary-value">${totalEntrada}</div></div>
+    </div>
+    <div class="exec-table-block"><div class="exec-table-title">Trocas envolvendo esta raia</div>
+      <div class="exec-table-wrap"><table class="exec-table">
+        <thead><tr><th class="th-center">Sentido</th><th>Outra \u00e1rea</th><th class="th-center">Handoffs</th></tr></thead>
+        <tbody>${corpo}</tbody>
+      </table></div>
+    </div>
+  </div>`;
+}
+
 function renderAnaliseComFiltro() {
   const cont = document.getElementById("metricas");
   if (!cont) return;
@@ -252,7 +374,9 @@ function renderAnaliseComFiltro() {
 
   const filtroHTML = `<div class="analise-filtro"><label>Raia:</label><select onchange="aplicarFiltroAnalise(this.value)">${opts}</select></div>`;
 
-  cont.innerHTML = filtroHTML + renderFTEResumo(fte, filtroAnaliseArea) + renderizarAnaliseExecutiva(dados);
+  const handoffs = calcularHandoffs();
+
+  cont.innerHTML = filtroHTML + renderFTEResumo(fte, filtroAnaliseArea) + renderHandoffs(handoffs, filtroAnaliseArea) + renderizarAnaliseExecutiva(dados);
 }
 
 function renderizarAnaliseExecutiva(dados) {

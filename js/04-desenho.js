@@ -219,6 +219,10 @@ function baixarTemplateExcel() {
     return;
   }
 
+  // Garante que os IDs (A, B, C...) estão sincronizados com a ordem atual
+  // antes de serializar as conexões (Próx Sim/Não/Extras).
+  atualizarTabela();
+
   const cabecalho = [
     "Ordem",
     "ID",

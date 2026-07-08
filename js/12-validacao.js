@@ -3,6 +3,19 @@
    Validação do fluxo e painel de validação
    (linhas 7811-7970 do script.js original - corte contiguo, sem alteracao de codigo)
    ========================================================= */
+/* Considera o DESENHO (editor): existe uma conexão saindo de `idVisual`
+   com o rótulo informado? Cobre setas para outra caixa e para terminais (Início/Fim).
+   As chaves de rotulosConexoes usam o id visual da origem: "ORIGEM__DESTINO". */
+function existeSaidaRotulada(idVisual, rotulo) {
+  if (!idVisual) return false;
+  const mapa = (typeof rotulosConexoes === "object" && rotulosConexoes) ? rotulosConexoes : {};
+  const prefixo = idVisual + "__";
+  const alvo = String(rotulo).trim().toLowerCase();
+  return Object.keys(mapa).some(k =>
+    k.indexOf(prefixo) === 0 && String(mapa[k]).trim().toLowerCase() === alvo
+  );
+}
+
 function validarFluxo() {
   const erros = [];
   const avisos = [];
@@ -59,7 +72,14 @@ function validarFluxo() {
 
     // 3) Decisão: precisa do "Não" e o Sim/Não não podem ir para a mesma caixa
     if (ehDecisao(l)) {
-      const temNao = !!l.proxNao || (Array.isArray(l.extras) && l.extras.some(Boolean));
+      // "Não" pode estar definido de 3 formas:
+      //  a) proxNao na tabela;
+      //  b) alguma saída extra;
+      //  c) no DESENHO (editor): uma conexão saindo da decisão rotulada "Não"
+      //     — inclui seta para outra caixa e seta para o Fim/terminal.
+      const idv = uidParaIdVisual[l.uid];
+      const naoNoDesenho = existeSaidaRotulada(idv, "Não");
+      const temNao = !!l.proxNao || (Array.isArray(l.extras) && l.extras.some(Boolean)) || naoNoDesenho;
       if (!temNao) {
         avisos.push(`A decisão ${nome(l.uid)} não tem o caminho de "Não" definido.`);
       }

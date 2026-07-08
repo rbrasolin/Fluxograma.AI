@@ -87,6 +87,8 @@ function salvarEstadoLocal(imediato = false) {
     try {
       const estado = obterEstadoAtual();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(estado));
+      // B1 (undo/redo): gancho opcional. No-op se 13-undo.js não estiver carregado.
+      if (typeof historicoAoSalvar === "function") historicoAoSalvar(estado);
     } catch (erro) {
       console.error("Erro ao salvar estado local:", erro);
     }

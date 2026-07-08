@@ -197,19 +197,36 @@ function reaplicarSugestoesConexao(forcarTudo = false) {
     const proximaLinha = fluxoData[index + 1] || null;
     const sugestaoUid = proximaLinha ? proximaLinha.uid : "";
 
+    // Não criar o "Sim" automático para um destino que a própria linha JÁ liga
+    // por outra via (conexão extra ou "Não"). Sem isso, uma caixa com "Sim"
+    // vazio e uma extra apontando para a próxima da ordem ganhava proxSim ==
+    // extra, gerando aresta duplicada (2 setas sobrepostas) e inflando as
+    // contagens de handoff/loop.
+    const jaLigaSugestao =
+      !!sugestaoUid && (
+        linha.proxNao === sugestaoUid ||
+        (Array.isArray(linha.extras) && linha.extras.includes(sugestaoUid))
+      );
+
     // Se a conexão já era automática, atualiza a sugestão
     if (linha.proxSimAuto && !linha.simRemovido) {
-      linha.proxSim = sugestaoUid;
-      linha.proxSimAuto = !!sugestaoUid;
+      if (jaLigaSugestao) {
+        linha.proxSim = "";
+        linha.proxSimAuto = false;
+      } else {
+        linha.proxSim = sugestaoUid;
+        linha.proxSimAuto = !!sugestaoUid;
+      }
       return;
     }
 
     // Onda 3: como não existe mais a coluna "Próxima", o "Sim" é SEMPRE a
     // próxima atividade da ordem. Garante a conexão sempre que o "Sim" estiver
     // vazio, EXCETO quando a saída foi removida de propósito no editor
-    // (semSaida). Decisões também recebem o "Sim" automático aqui; o "Não"
-    // continua manual.
+    // (semSaida) ou quando esse destino já está ligado por outra via. Decisões
+    // também recebem o "Sim" automático aqui; o "Não" continua manual.
     if (!linha.proxSim && !linha.semSaida && !linha.simRemovido) {
+      if (jaLigaSugestao) return;
       linha.proxSim = sugestaoUid;
       linha.proxSimAuto = !!sugestaoUid;
     }
@@ -1293,12 +1310,13 @@ function tratarTabCampo(event, uid, campo) {
   }
 }
 
-function importarExcel() {
-  const entrada = document.getElementById("entrada");
-  const texto = entrada ? entrada.value.trim() : "";
+function importarExcelDeTexto(texto) {
+  // Núcleo compartilhado (textarea legado + import por arquivo).
+  // Remove BOM do arquivo exportado, senão o cabeçalho não é detectado.
+  texto = String(texto == null ? "" : texto).replace(/^\uFEFF/, "").trim();
 
   if (!texto) {
-    mostrarToast("Cole a tabela do Excel primeiro.", "alerta");
+    mostrarToast("Nenhum conteúdo para importar.", "alerta");
     return;
   }
 
@@ -1387,6 +1405,34 @@ function importarExcel() {
 
   atualizarTabela();
   salvarEstadoLocal(true);
+  mostrarToast("Tabela importada. Clique em GERAR FLUXO para visualizar.", "ok");
+}
+
+// Compat: importa do textarea, se ainda existir na página.
+function importarExcel() {
+  const entrada = document.getElementById("entrada");
+  importarExcelDeTexto(entrada ? entrada.value : "");
+}
+
+// Importa a partir de um ARQUIVO de texto (TSV/CSV ou o .xls exportado pela ferramenta).
+function importarExcelArquivo(event) {
+  const input = event && event.target ? event.target : null;
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      importarExcelDeTexto(String(reader.result || ""));
+    } catch (erro) {
+      console.error("Erro ao importar Excel:", erro);
+      mostrarToast("Não foi possível ler o arquivo. Exporte pela ferramenta ou salve como 'Texto (separado por tabulações)'.", "erro");
+    } finally {
+      if (input) input.value = ""; // permite reimportar o mesmo arquivo
+    }
+  };
+  reader.onerror = () => mostrarToast("Falha ao ler o arquivo.", "erro");
+  reader.readAsText(file, "UTF-8");
 }
 
 function limpar(txt) {
