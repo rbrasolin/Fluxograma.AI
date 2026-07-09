@@ -537,34 +537,16 @@ button.secondary:disabled {
   padding: 14px 16px;
   font-size: 13px;
 }
-.raias-header {
-  display: flex; justify-content: space-between; align-items: center;
-  font-weight: 700; color: var(--brand); margin-bottom: 10px;
-}
 .raias-reset {
   background: var(--surface); color: var(--brand);
   border: 1px solid var(--border-strong);
   font-size: 11px; padding: 5px 10px; box-shadow: none;
 }
 .raias-reset:hover { background: var(--surface-3); }
-.raias-lista { display: flex; flex-wrap: wrap; gap: 8px; }
-.raia-item {
-  display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
-  padding: 6px 10px; background: var(--surface); box-shadow: var(--sh-sm);
-}
-.raia-pos { font-size: 11px; color: var(--accent); font-weight: 800; }
-.raia-nome {
-  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-weight: 500;
-}
-.raia-acoes { display: flex; gap: 4px; }
-.raia-acoes button { padding: 3px 9px; font-size: 12px; line-height: 1; box-shadow: none; }
-.raia-acoes button:disabled { background: var(--surface-3); color: var(--ink-3); }
 .raias-dica { margin-top: 10px; font-size: 12px; color: var(--ink-2); }
 
 /* ============ Editor: popover de conexão ============ */
-#popoverConexao, #criadorConexao, #moverCaixa {
+#popoverConexao, #criadorConexao, #moverCaixa, #moverRaia {
   position: fixed; z-index: 10000; display: none;
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -576,6 +558,29 @@ button.secondary:disabled {
 #popoverConexao { width: 244px; }
 #criadorConexao { width: 284px; }
 #moverCaixa { width: 264px; z-index: 10001; }
+
+/* Popover "Mover raia" (reordenação por clique no cabeçalho da raia) */
+#moverRaia { width: 230px; z-index: 10001; }
+#moverRaia .pop-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+#moverRaia .pop-fechar {
+  background: transparent; color: var(--ink-3); padding: 0 4px; font-size: 16px; box-shadow: none;
+}
+#moverRaia .pop-fechar:hover { color: var(--ink); background: transparent; }
+.raia-mover-acoes { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.raia-mv-btn {
+  width: 100%; padding: 9px; font-size: 13px;
+  background: var(--accent); color: #fff; border-radius: var(--r-xs); box-shadow: none;
+}
+.raia-mv-btn:hover { background: var(--accent-hover); }
+.raia-mv-btn:disabled { background: var(--surface-3); color: var(--ink-3); cursor: default; }
+
+/* Feedback visual do cabeçalho da raia clicável (somente na tela) */
+.lane-header-clicavel { transition: filter .12s ease; }
+#diagram.diagram-editando [data-raia] { cursor: pointer; }
+#diagram.diagram-editando .lane-header-clicavel:hover { filter: brightness(0.93); }
 
 #popoverConexao .pop-header {
   display: flex; justify-content: space-between; align-items: center;
