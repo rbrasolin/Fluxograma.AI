@@ -28,6 +28,13 @@
     if (br) br.disabled = (ponteiro >= pilha.length - 1);
   }
 
+  // Exposta pra 11-editor.js poder ressincronizar o disabled/enabled dos botões
+  // depois de renderPainelRaias() recriar o HTML deles (o painel de edição é
+  // reconstruído do zero a cada render — os botões #btnDesfazer/#btnRefazer
+  // nascem de novo com o "disabled" padrão do template, precisam ser
+  // recalculados na hora).
+  window.atualizarBotoesUndo = atualizarBotoes;
+
   /* Gancho chamado por salvarEstadoLocal (01-estado.js) a cada persistência. */
   window.historicoAoSalvar = function (estado) {
     if (restaurando) return;                       // ignora o save disparado pela própria restauração

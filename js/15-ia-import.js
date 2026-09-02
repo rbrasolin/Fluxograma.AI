@@ -143,7 +143,7 @@ function importarFluxoIA(event) {
         mostrarToast("Não encontrei atividades no arquivo. Confira se ele segue o formato do prompt (chave 'atividades').", "alerta");
         return;
       }
-      excelAplicarBase(base, "Base importada da IA. Clique em GERAR FLUXO para visualizar.");
+      excelAplicarBase(base, "Base importada da IA. Clique em Gerar Fluxo para visualizar.");
     } catch (e) {
       console.error(e);
       mostrarToast("Não consegui ler esse arquivo. Ele é um .json válido gerado a partir do prompt?", "erro");

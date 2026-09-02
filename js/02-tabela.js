@@ -994,6 +994,23 @@ function atualizarTabela() {
   });
 
   atualizarOpcoesDeConexao();
+  atualizarVisibilidadeBlocoZero();
+}
+
+/* Mostra o bloco "Desenhe do zero" só quando o fluxo está realmente vazio
+   (nenhuma raia/atividade preenchida ainda). Assim que houver conteúdo real —
+   por tabela, Excel, IA ou pelo próprio "Começar a desenhar" — o bloco some, e
+   continuar desenhando passa a ser via editor ("Ajustar fluxo" → clique na
+   caixa → "+ Seta a partir daqui" / "+ Inserir caixa aqui"). Chamada no fim de
+   atualizarTabela(), o ponto central de re-render após qualquer mudança de
+   estado — não persiste nada, é só reflexo visual do fluxoData atual. */
+function atualizarVisibilidadeBlocoZero() {
+  const bloco = document.getElementById("blocoComecarZero");
+  if (!bloco) return;
+  const vazio = !Array.isArray(fluxoData) || !fluxoData.some(l =>
+    limpar(l.area || "") || limpar(l.atividade || "")
+  );
+  bloco.style.display = vazio ? "" : "none";
 }
 
 function aoSairCampoLinha(uid) {

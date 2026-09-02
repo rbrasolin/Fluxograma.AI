@@ -318,7 +318,7 @@ function importarProjetoJSON(event) {
       salvarEstadoLocal(true);
 
       if (ok) {
-        mostrarToast("Projeto importado. Clique em GERAR FLUXO para visualizar.", "ok");
+        mostrarToast("Projeto importado. Clique em Gerar Fluxo para visualizar.", "ok");
       } else {
         mostrarToast("Projeto carregado, mas houve inconsistências ao restaurar.", "alerta");
       }

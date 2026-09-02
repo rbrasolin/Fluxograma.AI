@@ -36,12 +36,12 @@ function alternarModoEdicao() {
   const btn = document.getElementById("btnAjustarFluxo");
 
   if (modoEdicaoAtivo) {
-    if (btn) { btn.classList.add("ativo"); btn.textContent = "Concluir ajustes"; }
+    if (btn) { btn.classList.add("ativo"); btn.textContent = "Finalizar Fluxo"; }
     aplicarCamadaEdicao();
     renderPainelRaias();
     mostrarToast("Modo de ajuste ativo: clique numa seta para corrigir entrada/saída.", "info", 4500);
   } else {
-    if (btn) { btn.classList.remove("ativo"); btn.textContent = "Ajustar fluxo"; }
+    if (btn) { btn.classList.remove("ativo"); btn.textContent = "Editar Fluxo"; }
     removerCamadaEdicao();
     fecharPopoverConexao();
     mostrarToast("Ajustes concluídos.", "ok");
@@ -300,10 +300,18 @@ function renderPainelRaias() {
     <div class="raias-dica">
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('inicio', event)">+ Início</button>
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('fim', event)">+ Fim</button>
+      <button type="button" class="btn-nova-seta" onclick="abrirComecarDoZero(event)">+ Raia</button>
+      <button type="button" id="btnDesfazer" class="raias-reset" onclick="desfazer()" title="Desfazer (Ctrl+Z fora dos campos)" disabled>↶ Desfazer</button>
+      <button type="button" id="btnRefazer" class="raias-reset" onclick="refazer()" title="Refazer (Ctrl+Y fora dos campos)" disabled>↷ Refazer</button>
       <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
       <span>Clique numa raia para reordená-la, num Início/Fim para reposicioná-lo, numa caixa para editá-la ou criar uma seta a partir dela, ou numa seta (inclusive de Início/Fim) para mudar lados, inserir uma caixa, trocar destino ou apagar.</span>
     </div>
   `;
+
+  // Os botões acima nascem do zero a cada render (disabled="true" por
+  // padrão no template) — ressincroniza com o estado real da pilha de
+  // undo/redo, senão eles ficam sempre desabilitados até a próxima ação.
+  if (typeof atualizarBotoesUndo === "function") atualizarBotoesUndo();
 }
 
 function moverRaia(nome, direcao) {
@@ -621,12 +629,13 @@ document.addEventListener("click", (event) => {
   if (!event.target || !event.target.closest) return;
   if (event.target.closest(
     "#popoverConexao, #moverCaixa, #moverRaia, #moverTerminal, " +
-    "#criadorConexao, #criadorCaixa, #criadorTerminal"
+    "#criadorConexao, #criadorCaixa, #criadorTerminal, #comecarDoZero"
   )) return;
   if (event.target.closest("g.editor-ui")) return; // caixas e setas (área de clique do SVG)
   if (event.target.closest("[data-raia]")) return;   // cabeçalho de raia
   if (event.target.closest("[data-terminal]")) return; // ícone Início/Fim
-  if (event.target.closest(".raias-dica")) return;   // + Caixa / + Início / + Fim / Resetar
+  if (event.target.closest(".raias-dica")) return;   // + Início / + Fim / + Raia / Resetar
+  if (event.target.closest("#blocoComecarZero")) return; // botão "Começar a desenhar"
 
   fecharPopoverConexao();
   fecharMoverCaixa();
@@ -635,6 +644,7 @@ document.addEventListener("click", (event) => {
   fecharCriadorConexao();
   fecharCriadorCaixa();
   fecharCriadorTerminal();
+  fecharComecarDoZero();
 });
 
 /* =====================================================================
@@ -860,19 +870,125 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
   mostrarToast(`Nova seta criada: ${origemVisual} → ${destinoVisual}.`, "ok");
 }
 
+/* Cria uma caixa nova E já conecta origem → nova numa única ação — o motor por
+   trás de "+ Nova caixa" no seletor de destino de abrirCriadorConexao.
+
+   Duas mecânicas separadas, cada uma resolvendo um efeito colateral distinto:
+
+   1) COLUNA: em vez de procurar a próxima coluna LIVRE na raia (o que fazia a
+      caixa nova pular pra depois de qualquer coisa que já estivesse no
+      caminho, aterrissando longe de onde o usuário clicou), empurra +1 tudo
+      que já ocupava coluna >= origem+1 — em TODAS as raias, igual
+      inserirNovaCaixa (a coluna é o eixo do tempo, compartilhado entre raias).
+      Assim a caixa nova sempre entra logo ao lado da origem.
+
+   2) ARRAY: "nova" sempre entra no FIM do array (fluxoData.push) — nunca
+      desloca ninguém no array (só na coluna, acima), então nenhuma letra
+      muda e dispensa reletramento. Mas isso faz a linha que HOJE é a última
+      do array virar a "próxima" dela aos olhos de reaplicarSugestoesConexao
+      (chamada por gerarFluxo logo em seguida), que auto-liga todo "Sim"
+      vazio à próxima linha do array. Se essa última linha for uma caixa
+      qualquer sem saída — não necessariamente a origem clicada —, ela ganhava
+      uma seta "Sim" pra caixa nova que ninguém pediu (bug real, achado num
+      .json de teste do usuário: clique em B criou uma seta fantasma D→nova,
+      só porque D por acaso era a última linha do array). Congela essa linha
+      como "sem saída de propósito" pra evitar isso. Se por acaso for a
+      própria origem (o caso mais comum: continuar desenhando a partir da
+      última caixa do fluxo), criarConexao desfaz o congelamento normalmente,
+      ao ligar a saída real dela na nova caixa.
+
+   A conexão em si (Sim/Não/extra, rótulo, guarda anti-duplicata) é 100%
+   delegada a criarConexao — zero wiring duplicado. */
+function criarConexaoNovaCaixa(origemVisual, tipo, tipoCaixaBruto, atividadeTextoBruto) {
+  const atividade = normalizarEspacos(atividadeTextoBruto);
+  if (!atividade) { mostrarToast("Informe o texto da nova atividade.", "alerta"); return; }
+
+  // Texto livre (igual a coluna "Tipo" da tabela — ver inserirNovaCaixa).
+  const tipoCaixa = normalizarTextoCampo("tipo", tipoCaixaBruto || "");
+
+  const { visualParaUid } = mapaIdVisualUid();
+  const oUid = visualParaUid[origemVisual];
+  const origemLinha = fluxoData.find(l => l.uid === oUid);
+  if (!origemLinha) { mostrarToast("Não encontrei a caixa de origem.", "alerta"); return; }
+
+  const area = origemLinha.area || "";
+  const linhaLane = Math.max(1, Number(origemLinha.linha) || 1);
+  const col = Math.max(1, Number(origemLinha.coluna) || 1) + 1;
+
+  // Só empurra +1 se a coluna logo depois da origem já estiver ocupada
+  // (nessa mesma raia/linha) — se a origem for a última caixa da raia (o
+  // caso mais comum: continuar desenhando a partir da última), não tem nada
+  // no caminho, e empurrar mesmo assim bagunçaria raias sem relação nenhuma
+  // com essa caixa nova (mesmo bug de inserirNovaCaixa, mesma causa).
+  if (existePosicaoOcupadaNaRaia(null, area, linhaLane, col)) {
+    fluxoData.forEach((l) => {
+      if (limpar(l.atividade || "") === "") return;
+      if ((Number(l.coluna) || 1) >= col) {
+        l.coluna = (Number(l.coluna) || 1) + 1;
+        l.colunaManual = true;
+      }
+    });
+  }
+
+  const ultimaAntes = fluxoData[fluxoData.length - 1];
+  if (ultimaAntes && !ultimaAntes.proxSim && !ultimaAntes.semSaida && !ultimaAntes.simRemovido) {
+    ultimaAntes.semSaida = true;
+  }
+
+  const nova = {
+    uid: gerarUID(), ordem: 0, id: "",
+    area, atividade,
+    tipo: tipoCaixa,
+    sistema: "", tempo: "",
+    coluna: col, linha: linhaLane, colunaManual: true, linhaManual: true,
+    cor: "white",
+    proxSim: "", proxSimAuto: false, proxNao: "", extras: [], semSaida: false
+  };
+
+  fluxoData.push(nova);
+
+  const novaVisual = mapaIdVisualUid().uidParaVisual[nova.uid];
+  criarConexao(origemVisual, novaVisual, tipo);
+}
+
 /* ---------- Criador de nova conexão (formulário flutuante) ----------
-   Sempre aberto a partir de uma caixa (popover "Mover caixa" -> "+ Seta"):
-   a origem é essa caixa, travada; só falta escolher destino e tipo. */
-function abrirCriadorConexao(uidOrigem, ev) {
+   Sempre aberto a partir de uma caixa (popover "Mover caixa"): a origem é
+   essa caixa, travada. Dois botões levam ao mesmo formulário, só mudando o
+   destino pré-selecionado: "+ Caixa a partir daqui" abre em "+ Nova caixa"
+   (abrirCriadorConexao direto); "+ Seta a partir daqui" abre já numa
+   atividade existente (via abrirCriadorConexaoExistente abaixo), pro caso em
+   que o usuário só quer ligar em algo que já existe (reconvergência, loop),
+   sem criar caixa nova nenhuma. */
+
+/* "+ Seta a partir daqui": exige pelo menos uma outra atividade no fluxo pra
+   fazer sentido; se não tiver, orienta a usar "+ Caixa a partir daqui"
+   primeiro (que não tem essa exigência — é o caminho de bootstrap). */
+function abrirCriadorConexaoExistente(uidOrigem, ev) {
   const { uidParaVisual } = mapaIdVisualUid();
   const origemVisual = uidParaVisual[uidOrigem];
   if (!origemVisual) return;
 
   const atividades = listaAtividadesSelect().filter(a => a.id !== origemVisual);
   if (!atividades.length) {
-    mostrarToast("É preciso ter ao menos duas atividades para criar uma seta.", "alerta");
+    mostrarToast(
+      "Ainda não existe outra atividade pra ligar. Use \"+ Caixa a partir daqui\" pra criar a próxima.",
+      "alerta"
+    );
     return;
   }
+
+  abrirCriadorConexao(uidOrigem, ev, atividades[0].id);
+}
+
+/* `destinoInicial`: undefined = pré-seleciona "+ Nova caixa" (chamada direta,
+   via "+ Caixa a partir daqui"); um id visual = pré-seleciona essa atividade
+   (chamada por abrirCriadorConexaoExistente, via "+ Seta a partir daqui"). */
+function abrirCriadorConexao(uidOrigem, ev, destinoInicial) {
+  const { uidParaVisual } = mapaIdVisualUid();
+  const origemVisual = uidParaVisual[uidOrigem];
+  if (!origemVisual) return;
+
+  const atividades = listaAtividadesSelect().filter(a => a.id !== origemVisual);
 
   mostrarBackdropEditor();
   let box = document.getElementById("criadorConexao");
@@ -883,12 +999,12 @@ function abrirCriadorConexao(uidOrigem, ev) {
   }
 
   const opcoes = atividades
-    .map(a => `<option value="${escaparHTML(a.id)}">${escaparHTML(a.label)}</option>`)
+    .map(a => `<option value="${escaparHTML(a.id)}"${a.id === destinoInicial ? " selected" : ""}>${escaparHTML(a.label)}</option>`)
     .join("");
 
   box.innerHTML = `
     <div class="pop-header">
-      <span><b>Nova seta</b></span>
+      <span id="novaConexaoTitulo"><b>Nova caixa</b></span>
       <button type="button" class="pop-fechar" onclick="fecharCriadorConexao()">✕</button>
     </div>
     <div class="pop-grupo">
@@ -898,7 +1014,14 @@ function abrirCriadorConexao(uidOrigem, ev) {
     </div>
     <div class="pop-grupo">
       <div class="pop-label">Para (destino)</div>
-      <select id="novaConexaoDestino" class="pop-select">${opcoes}</select>
+      <select id="novaConexaoDestino" class="pop-select" onchange="alternarCamposNovaCaixaConexao()">
+        <option value="__NOVA__"${!destinoInicial ? " selected" : ""}>+ Nova caixa</option>
+        ${opcoes}
+      </select>
+    </div>
+    <div class="pop-grupo" id="novaConexaoCamposCaixa">
+      <div class="pop-label">Texto da nova atividade</div>
+      <input type="text" id="novaConexaoCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
     </div>
     <div class="pop-grupo">
       <div class="pop-label">Tipo</div>
@@ -909,11 +1032,31 @@ function abrirCriadorConexao(uidOrigem, ev) {
       </select>
     </div>
     <div class="pop-rodape pop-rodape-acoes">
-      <button type="button" class="pop-criar" onclick="confirmarCriarConexao()">Criar seta</button>
+      <button type="button" class="pop-criar" id="novaConexaoBotaoCriar" onclick="confirmarCriarConexao()">Criar caixa</button>
     </div>
   `;
 
+  alternarCamposNovaCaixaConexao();
   posicionarFlutuante(box, ev);
+}
+
+/* Mostra os campos "Tipo da nova caixa" / "Texto da nova atividade" só quando
+   o destino selecionado é "+ Nova caixa"; escondidos ao escolher uma
+   atividade já existente. Também ajusta o título e o botão do popover — esse
+   formulário serve pros dois casos (criar caixa nova, ou só ligar numa
+   atividade já existente), então o texto muda junto pra não ficar sempre
+   falando em "seta" quando o que o usuário está criando é uma caixa. */
+function alternarCamposNovaCaixaConexao() {
+  const destino = document.getElementById("novaConexaoDestino");
+  const campos = document.getElementById("novaConexaoCamposCaixa");
+  const titulo = document.getElementById("novaConexaoTitulo");
+  const botao = document.getElementById("novaConexaoBotaoCriar");
+  if (!destino) return;
+
+  const criandoCaixa = destino.value === "__NOVA__";
+  if (campos) campos.style.display = criandoCaixa ? "" : "none";
+  if (titulo) titulo.innerHTML = criandoCaixa ? "<b>Nova caixa</b>" : "<b>Nova seta</b>";
+  if (botao) botao.textContent = criandoCaixa ? "Criar caixa" : "Criar seta";
 }
 
 function confirmarCriarConexao() {
@@ -921,6 +1064,13 @@ function confirmarCriarConexao() {
   const d = document.getElementById("novaConexaoDestino");
   const t = document.getElementById("novaConexaoTipo");
   if (!o || !d || !t) return;
+
+  if (d.value === "__NOVA__") {
+    const textoCaixa = (document.getElementById("novaConexaoCaixaTexto") || {}).value;
+    criarConexaoNovaCaixa(o.value, t.value, "", textoCaixa);
+    return;
+  }
+
   criarConexao(o.value, d.value, t.value);
 }
 
@@ -1066,6 +1216,7 @@ function mostrarBackdropEditor() {
       fecharCriadorTerminal();
       fecharCriadorConexao();
       fecharCriadorCaixa();
+      fecharComecarDoZero();
       fecharMoverCaixa();
       fecharMoverRaia();
       fecharMoverTerminal();
@@ -1080,6 +1231,7 @@ function esconderBackdropEditor() {
   const t = document.getElementById("criadorTerminal");
   const c = document.getElementById("criadorConexao");
   const cx = document.getElementById("criadorCaixa");
+  const cz = document.getElementById("comecarDoZero");
   const mv = document.getElementById("moverCaixa");
   const mr = document.getElementById("moverRaia");
   const mt = document.getElementById("moverTerminal");
@@ -1087,6 +1239,7 @@ function esconderBackdropEditor() {
     (t && t.style.display === "block") ||
     (c && c.style.display === "block") ||
     (cx && cx.style.display === "block") ||
+    (cz && cz.style.display === "block") ||
     (mv && mv.style.display === "block") ||
     (mr && mr.style.display === "block") ||
     (mt && mt.style.display === "block");
@@ -1172,7 +1325,14 @@ function reletrarReferenciasVisuais(mapaAntes, mapaDepois) {
 }
 
 function inserirNovaCaixa(opts) {
-  const tipo = opts.tipo === "decisao" ? "decisao" : "atividade";
+  // Texto livre (igual a coluna "Tipo" da tabela — ehDecisao reconhece
+  // "decisão"/"decisao" sem diferenciar caixa/acento; qualquer outro valor é
+  // só metadado, usado no recorte "tempo por tipo" da Análise/PDF).
+  // normalizarTextoCampo (não só normalizarEspacos) porque "tipo" tem dedupe
+  // de grafia contra valores já existentes — sem isso, digitar "decisão" numa
+  // caixa nova quando já existe "Decisão" no fluxo criaria duas categorias
+  // diferentes no recorte por tipo, em vez de uma só.
+  const tipo = normalizarTextoCampo("tipo", opts.tipo || "");
   const atividade = limpar(opts.atividade || "");
   const area = opts.area || "";
   const col = Math.max(1, Number(opts.coluna) || 1);
@@ -1181,20 +1341,28 @@ function inserirNovaCaixa(opts) {
   if (!atividade) { mostrarToast("Informe o texto da atividade.", "alerta"); return; }
   if (!area) { mostrarToast("Escolha a raia (área).", "alerta"); return; }
 
-  // Empurra +1 todas as caixas com coluna >= col (em todas as raias) e fixa manual.
-  fluxoData.forEach((l) => {
-    if (limpar(l.atividade || "") === "") return;
-    if ((Number(l.coluna) || 1) >= col) {
-      l.coluna = (Number(l.coluna) || 1) + 1;
-      l.colunaManual = true;
-    }
-  });
+  // Só empurra +1 as caixas com coluna >= col (em todas as raias) se a
+  // posição alvo (essa área, nessa linha, nessa coluna) já estiver ocupada —
+  // senão não tem nada "no caminho" pra abrir espaço. Bug real, achado com um
+  // .json de teste do usuário: criar uma raia nova (vazia) sempre empurrava a
+  // coluna de TODAS as outras raias, mesmo sem nenhum conflito — inserir na
+  // raia nova não deveria mexer em raia nenhuma que já tinha suas próprias
+  // caixas nos seus próprios lugares.
+  if (existePosicaoOcupadaNaRaia(null, area, lin, col)) {
+    fluxoData.forEach((l) => {
+      if (limpar(l.atividade || "") === "") return;
+      if ((Number(l.coluna) || 1) >= col) {
+        l.coluna = (Number(l.coluna) || 1) + 1;
+        l.colunaManual = true;
+      }
+    });
+  }
 
   const novoUid = gerarUID();
   const nova = {
     uid: novoUid, ordem: 0, id: "",
     area, atividade,
-    tipo: tipo === "decisao" ? "Decisão" : "",
+    tipo,
     sistema: "", tempo: "",
     coluna: col, linha: lin, colunaManual: true, linhaManual: true,
     cor: "white",
@@ -1313,6 +1481,68 @@ function inserirNovaCaixa(opts) {
   mostrarToast(`Caixa "${atividade}" inserida na coluna ${col}.`, "ok");
 }
 
+/* ---------- Nova raia (com a 1ª caixa dela) ----------
+   Duas portas de entrada pro mesmo popover: o bloco "Desenhe do zero" (fora
+   do modo de edição, só aparece com o fluxo vazio — cria a 1ª raia de todas)
+   e o botão "+ Raia" na barra do editor (dentro do modo de edição, sempre
+   visível — adiciona mais uma raia a um fluxo que já existe). Os dois casos
+   usam exatamente a mesma mecânica: inserirNovaCaixa, chamada sem
+   origemId/destinoId, entra no fim do array sem disparar nenhuma lógica de
+   rewiring (pra um array vazio isso é a posição 0; pra um array já populado,
+   só mais uma linha no fim — e coluna 1 é o ponto de partida natural pra uma
+   raia nova, que ainda não se conecta a nada do resto do fluxo). Depois de
+   criar, garante o modo de ajuste ligado — no caso "+ Raia" já estava,
+   então não faz nada; no caso "Desenhe do zero" é quem liga. */
+function abrirComecarDoZero(ev) {
+  mostrarBackdropEditor();
+  let box = document.getElementById("comecarDoZero");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "comecarDoZero";
+    document.body.appendChild(box);
+  }
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span></span>
+      <button type="button" class="pop-fechar" onclick="fecharComecarDoZero()">✕</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Nome da raia (área)</div>
+      <input type="text" id="zeroRaiaNome" class="pop-select" placeholder="Ex.: Comercial" />
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Texto da primeira atividade</div>
+      <input type="text" id="zeroCaixaTexto" class="pop-select" placeholder="Ex.: Receber solicitação" />
+    </div>
+    <div class="pop-rodape pop-rodape-acoes">
+      <button type="button" class="pop-criar" onclick="confirmarComecarDoZero()">Criar raia</button>
+    </div>
+  `;
+  posicionarFlutuante(box, ev);
+}
+
+function confirmarComecarDoZero() {
+  const area = normalizarEspacos((document.getElementById("zeroRaiaNome") || {}).value);
+  const atividade = normalizarEspacos((document.getElementById("zeroCaixaTexto") || {}).value);
+
+  const antes = fluxoData.length;
+  inserirNovaCaixa({ atividade, area, coluna: 1, linha: 1 });
+  // inserirNovaCaixa já valida atividade/área vazias (toast + aborta sem tocar
+  // fluxoData nesse caso) — só fecha e entra no modo de ajuste se ela de fato
+  // criou a linha.
+  if (fluxoData.length === antes) return;
+
+  fecharComecarDoZero();
+  if (!modoEdicaoAtivo) alternarModoEdicao();
+}
+
+function fecharComecarDoZero() {
+  const box = document.getElementById("comecarDoZero");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
+}
+
 /* ---------- Formulário flutuante de Nova caixa ----------
    Só abre a partir de "+ Inserir caixa aqui", no popover de uma seta (qualquer
    uma — entre atividades, ou envolvendo Início/Fim). O contexto {origemId,
@@ -1340,13 +1570,6 @@ function abrirCriadorCaixa(ev, contextoConexao) {
     </div>
     ${tituloContexto}
     <div class="pop-grupo">
-      <div class="pop-label">Tipo</div>
-      <select id="novaCaixaTipo" class="pop-select">
-        <option value="atividade">Atividade</option>
-        <option value="decisao">Decisão</option>
-      </select>
-    </div>
-    <div class="pop-grupo">
       <div class="pop-label">Texto da atividade</div>
       <input type="text" id="novaCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
     </div>
@@ -1362,7 +1585,6 @@ function confirmarCriarCaixa() {
   const contexto = (box && box.dataset.contexto) ? JSON.parse(box.dataset.contexto) : null;
   if (!contexto) return;
 
-  const tipo = (document.getElementById("novaCaixaTipo") || {}).value;
   const atividade = (document.getElementById("novaCaixaTexto") || {}).value;
   const { origemId, destinoId } = contexto;
   const ehTerminal = (id) => typeof id === "string" && id.startsWith("__");
@@ -1381,7 +1603,6 @@ function confirmarCriarCaixa() {
   const colunaRef = Number(referencia.coluna) || 1;
 
   inserirNovaCaixa({
-    tipo,
     atividade,
     area: referencia.area,
     coluna: ehTerminal(origemId) ? colunaRef : colunaRef + 1,
@@ -1453,8 +1674,26 @@ function abrirMoverCaixa(uid, ev) {
       </div>
     </div>
     <div class="pop-grupo">
+      <div class="pop-label">Cor</div>
+      <select id="editarCorCaixa" class="pop-select" onchange="aplicarEditarCampoCaixa('${uid}','cor')">
+        <option value="white" ${linha.cor === "white" ? "selected" : ""}>Branco</option>
+        <option value="blue" ${linha.cor === "blue" ? "selected" : ""}>Azul</option>
+        <option value="green" ${linha.cor === "green" ? "selected" : ""}>Verde</option>
+        <option value="yellow" ${linha.cor === "yellow" ? "selected" : ""}>Amarelo</option>
+        <option value="red" ${linha.cor === "red" ? "selected" : ""}>Vermelho</option>
+      </select>
+    </div>
+    <div class="pop-grupo">
       <div class="pop-label">Raia (\u00e1rea)</div>
       <select id="moverArea" class="pop-select" onchange="aplicarMoverArea('${uid}')">${optAreas}</select>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Tipo da atividade (opcional)</div>
+      <input type="text" class="pop-input" id="editarTipoCaixa" list="sugestoes-tipo"
+        value="${escaparHTML(limpar(linha.tipo || ""))}"
+        placeholder="Ex.: Manual, Autom\u00e1tica..."
+        onblur="aplicarEditarCampoCaixa('${uid}','tipo')"
+        onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}" />
     </div>
     <div class="mover-dpad">
       <button type="button" class="dpad-btn dpad-up" title="Subir linha" onclick="nudgeMoverCaixa('${uid}',0,-1)">\u25b2</button>
@@ -1465,7 +1704,10 @@ function abrirMoverCaixa(uid, ev) {
     </div>
     <div class="mover-dica">\u25b2\u25bc muda a linha \u00b7 \u25c0\u25b6 muda a coluna</div>
     <div class="pop-rodape">
-      <button type="button" class="pop-seta-btn" onclick="abrirCriadorConexao('${uid}', event); fecharMoverCaixa();">+ Seta a partir daqui</button>
+      <div class="raia-mover-acoes">
+        <button type="button" class="pop-seta-btn" onclick="abrirCriadorConexao('${uid}', event); fecharMoverCaixa();">+ Caixa a partir daqui</button>
+        <button type="button" class="pop-seta-btn" onclick="abrirCriadorConexaoExistente('${uid}', event); fecharMoverCaixa();">+ Seta a partir daqui</button>
+      </div>
     </div>
     <button type="button" class="raia-mv-btn terminal-excluir" onclick="excluirCaixaEditor('${uid}')">\u2715 Excluir caixa</button>
   `;
@@ -1528,13 +1770,24 @@ function aplicarEditarAtividadeCaixa(uid) {
   mostrarToast("Texto da caixa atualizado.", "ok");
 }
 
-// Edita Sistema ou Tempo da caixa pelo popover "Mover caixa" (ambos opcionais,
-// sem guarda de campo vazio, diferente da atividade). Mesma normalização da tabela.
+// Edita Tipo, Sistema, Tempo ou Cor da caixa pelo popover "Mover caixa" (todos
+// opcionais, sem guarda de campo vazio, diferente da atividade). Mesma
+// normalização da tabela — inclusive o Tipo, que é texto livre (não um
+// seletor fixo Atividade/Decisão): ehDecisao reconhece "decisão"/"decisao"
+// digitado ali, qualquer outro valor vira metadado pro recorte "tempo por
+// tipo" da Análise/PDF, igual já funcionava vindo da tabela.
+const CAMPOS_EDITAR_CAIXA = {
+  tipo: { id: "editarTipoCaixa", rotulo: "Tipo" },
+  sistema: { id: "editarSistemaCaixa", rotulo: "Sistema" },
+  tempo: { id: "editarTempoCaixa", rotulo: "Tempo" },
+  cor: { id: "editarCorCaixa", rotulo: "Cor" }
+};
+
 function aplicarEditarCampoCaixa(uid, campo) {
   const linha = fluxoData.find(l => l.uid === uid);
   if (!linha) return;
-  const idEl = campo === "sistema" ? "editarSistemaCaixa" : "editarTempoCaixa";
-  const el = document.getElementById(idEl);
+  const config = CAMPOS_EDITAR_CAIXA[campo];
+  const el = config && document.getElementById(config.id);
   if (!el) return;
 
   const bruto = normalizarEspacos(el.value);
@@ -1548,7 +1801,7 @@ function aplicarEditarCampoCaixa(uid, campo) {
   salvarEstadoLocal(true);
   atualizarTabela();
   gerarFluxo();
-  mostrarToast(`${campo === "sistema" ? "Sistema" : "Tempo"} atualizado.`, "ok");
+  mostrarToast(`${config.rotulo} atualizado.`, "ok");
 }
 
 // Move a caixa 1 passo: dCol (-1 esquerda / +1 direita), dLin (-1 sobe / +1 desce).

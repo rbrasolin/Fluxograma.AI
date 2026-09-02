@@ -217,7 +217,7 @@ function excelAplicarBase(base, mensagemSucesso) {
   reaplicarSugestoesConexao(true); // Sim = próxima atividade
   atualizarTabela();
   salvarEstadoLocal(true);
-  mostrarToast(mensagemSucesso || "Base importada do Excel. Clique em GERAR FLUXO para visualizar.", "ok");
+  mostrarToast(mensagemSucesso || "Base importada do Excel. Clique em Gerar Fluxo para visualizar.", "ok");
 }
 
 function importarExcelNativo(event) {
