@@ -194,6 +194,7 @@ hr {
 }
 .montar-bloco h3 { margin: 0; }
 .montar-bloco .actions { margin: 0; }
+.montar-bloco-dica { margin: 0; font-size: 12px; color: var(--ink-2); }
 
 /* ============ Botões ============ */
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -565,7 +566,7 @@ button.secondary:disabled {
 
 /* ============ Editor: popover de conexão ============ */
 #popoverConexao, #criadorConexao, #moverCaixa, #moverRaia, #moverTerminal,
-#criadorCaixa, #criadorTerminal {
+#criadorCaixa, #criadorTerminal, #comecarDoZero {
   position: fixed; z-index: 10000; display: none;
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -579,6 +580,7 @@ button.secondary:disabled {
 #moverCaixa { width: 280px; z-index: 10001; }
 #criadorCaixa { width: 280px; z-index: 10001; }
 #criadorTerminal { width: 280px; z-index: 10001; }
+#comecarDoZero { width: 280px; z-index: 10001; }
 
 /* Cabeçalho (título + ✕) e botão fechar — comuns a todos os popovers flutuantes do
    editor (mover raia/caixa/terminal, criador de caixa/conexão/terminal, popover de

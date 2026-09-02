@@ -9,7 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.5.0/dist/svg2pdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-  <link rel="stylesheet" href="estilo.css?v=32" />
+  <link rel="stylesheet" href="estilo.css?v=44" />
 </head>
 <body>
 
@@ -59,26 +59,16 @@
     </div>
 
     <div class="montar-fluxo-topo">
-      <div class="montar-bloco">
-        <h3>Monte o fluxo na tabela</h3>
+      <div class="montar-bloco" id="blocoComecarZero">
+        <h3>Monte seu fluxo</h3>
         <div class="actions">
-          <button type="button" onclick="adicionarLinha()">+ Nova etapa</button>
-          <button type="button" onclick="gerarFluxo()">GERAR FLUXO</button>
-          <button type="button" class="secondary" onclick="limparTudo()">LIMPAR</button>
+          <button type="button" onclick="abrirComecarDoZero(event)">Começar a desenhar</button>
         </div>
       </div>
 
       <div class="montar-bloco">
-        <h3>Monte seu fluxo no Excel</h3>
-        <div class="actions">
-          <button type="button" onclick="baixarModeloExcel()">Baixar modelo Excel</button>
-          <button type="button" class="secondary" onclick="document.getElementById('importarExcelInput').click()">Importar modelo Excel</button>
-          <input type="file" id="importarExcelInput" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none" onchange="importarExcelNativo(event)" />
-        </div>
-      </div>
-
-      <div class="montar-bloco">
-        <h3>Monte seu fluxo com IA (transcrição, IT ou POP)</h3>
+        <h3>Monte seu fluxo com IA (ex.: transcrição, IT, planilha...)</h3>
+        <p class="montar-bloco-dica">Copie o prompt e cole na sua IA junto com o seu documento de referência — ela gera o arquivo pra você importar aqui.</p>
         <div class="actions">
           <button type="button" onclick="copiarPromptIA()">Copiar prompt para IA</button>
           <button type="button" class="secondary" onclick="document.getElementById('importarIAInput').click()">Importar arquivo da IA (.json)</button>
@@ -87,26 +77,34 @@
       </div>
     </div>
 
-    <div class="tabela-header-row">
-      <button type="button" id="btnColapsarTabela" class="tabela-toggle" onclick="alternarTabelaColapsada()" title="Recolher/expandir tabela">▾</button>
-      <span class="tabela-header-titulo">Tabela de montagem</span>
-    </div>
-    <div class="tabela-wrap" id="tabelaWrap">
-      <table id="tabelaFluxo">
-        <thead>
-          <tr>
-            <th>Área</th>
-            <th>Atividade</th>
-            <th>Tipo</th>
-            <th>Sistema</th>
-            <th>Tempo</th>
-            <th>Cor</th>
-            <th>Não</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody id="tbodyFluxo"></tbody>
-      </table>
+    <!-- Tabela de montagem: mantida no DOM (oculta) em vez de removida — muita
+         coisa (atualizarTabela, autocomplete, datalists) ainda lê/escreve nela
+         por baixo dos panos, mesmo sem o usuário montar o fluxo por aqui mais.
+         "Monte o fluxo na tabela" e "Monte seu fluxo no Excel" saíram de vez
+         (a IA cobre o caso de já ter algo em Excel: cola a planilha + o
+         prompt em qualquer IA e importa o .json aqui). -->
+    <div id="secaoTabela" style="display:none">
+      <div class="tabela-header-row">
+        <button type="button" id="btnColapsarTabela" class="tabela-toggle" onclick="alternarTabelaColapsada()" title="Recolher/expandir tabela">▾</button>
+        <span class="tabela-header-titulo">Tabela de montagem</span>
+      </div>
+      <div class="tabela-wrap" id="tabelaWrap">
+        <table id="tabelaFluxo">
+          <thead>
+            <tr>
+              <th>Área</th>
+              <th>Atividade</th>
+              <th>Tipo</th>
+              <th>Sistema</th>
+              <th>Tempo</th>
+              <th>Cor</th>
+              <th>Não</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyFluxo"></tbody>
+        </table>
+      </div>
     </div>
 
     <hr>
@@ -114,10 +112,9 @@
     <div class="section-header">
       <h3>Fluxo</h3>
       <div class="actions inline-actions">
-        <button type="button" onclick="gerarFluxo()">GERAR FLUXO</button>
-        <button type="button" id="btnAjustarFluxo" class="btn-editar" onclick="alternarModoEdicao()">Ajustar fluxo</button>
-        <button type="button" id="btnDesfazer" class="secondary" onclick="desfazer()" title="Desfazer (Ctrl+Z fora dos campos)" disabled>↶ Desfazer</button>
-        <button type="button" id="btnRefazer" class="secondary" onclick="refazer()" title="Refazer (Ctrl+Y fora dos campos)" disabled>↷ Refazer</button>
+        <button type="button" onclick="gerarFluxo()">Gerar Fluxo</button>
+        <button type="button" id="btnAjustarFluxo" class="btn-editar" onclick="alternarModoEdicao()">Editar Fluxo</button>
+        <button type="button" class="secondary" onclick="limparTudo()">Limpar</button>
         <button type="button" onclick="baixarSVG()">Baixar Fluxo</button>
         <button type="button" onclick="baixarSVGExcel()">Baixar SVG Excel</button>
         <button type="button" onclick="baixarPNG()">Baixar PNG</button>
@@ -156,20 +153,20 @@
   </div>
 
   <!-- script.js modularizado (D1). Ordem = ordem de leitura do monolito original. NAO reordenar. -->
-  <script src="js/01-estado.js?v=32"></script>
-  <script src="js/02-tabela.js?v=32"></script>
-  <script src="js/03-utils.js?v=32"></script>
-  <script src="js/04-desenho.js?v=32"></script>
-  <script src="js/05-roteamento.js?v=32"></script>
-  <script src="js/06-analise.js?v=32"></script>
-  <script src="js/07-gerar-fluxo.js?v=32"></script>
-  <script src="js/08-excel.js?v=32"></script>
-  <script src="js/09-pdf.js?v=32"></script>
-  <script src="js/10-export-app.js?v=32"></script>
-  <script src="js/11-editor.js?v=32"></script>
-  <script src="js/12-validacao.js?v=32"></script>
-  <script src="js/13-undo.js?v=32"></script>
-  <script src="js/14-excel-io.js?v=32"></script>
-  <script src="js/15-ia-import.js?v=32"></script>
+  <script src="js/01-estado.js?v=44"></script>
+  <script src="js/02-tabela.js?v=44"></script>
+  <script src="js/03-utils.js?v=44"></script>
+  <script src="js/04-desenho.js?v=44"></script>
+  <script src="js/05-roteamento.js?v=44"></script>
+  <script src="js/06-analise.js?v=44"></script>
+  <script src="js/07-gerar-fluxo.js?v=44"></script>
+  <script src="js/08-excel.js?v=44"></script>
+  <script src="js/09-pdf.js?v=44"></script>
+  <script src="js/10-export-app.js?v=44"></script>
+  <script src="js/11-editor.js?v=44"></script>
+  <script src="js/12-validacao.js?v=44"></script>
+  <script src="js/13-undo.js?v=44"></script>
+  <script src="js/14-excel-io.js?v=44"></script>
+  <script src="js/15-ia-import.js?v=44"></script>
 </body>
 </html>
