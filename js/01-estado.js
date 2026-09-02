@@ -29,6 +29,7 @@ let terminais = [];           // [{ id, tipo:'inicio'|'fim', alvo: idVisual }]
 let inicioAlvo = "";          // idVisual da caixa onde o Início padrão conecta ("" = primeira)
 let fimOrigem = "";           // idVisual da caixa de onde o Fim padrão vem ("" = última)
 let inicioOculto = false;     // esconde o Início padrão e sua seta
+let fimOculto = false;        // esconde o Fim padrão e sua seta
 let terminalCounter = 1;
 
 const STORAGE_KEY = "gerador_fluxograma_estado_v1";
@@ -78,7 +79,8 @@ function obterEstadoAtual() {
     terminais: Array.isArray(terminais) ? [...terminais] : [],
     inicioAlvo: inicioAlvo || "",
     fimOrigem: fimOrigem || "",
-    inicioOculto: !!inicioOculto
+    inicioOculto: !!inicioOculto,
+    fimOculto: !!fimOculto
   };
 }
 
@@ -192,6 +194,7 @@ function restaurarEstadoLocal() {
     inicioAlvo = estado.inicioAlvo || "";
     fimOrigem = estado.fimOrigem || "";
     inicioOculto = !!estado.inicioOculto;
+    fimOculto = !!estado.fimOculto;
     terminalCounter = (terminais.reduce((m, t) => {
       const n = parseInt(String(t.id).replace(/\D/g, ""), 10) || 0;
       return Math.max(m, n);

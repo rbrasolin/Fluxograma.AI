@@ -195,20 +195,28 @@ function renderPopoverConexao() {
     : `<button type="button" class="pop-apagar" onclick="apagarSetaTerminal('${origemId}','${destinoId}')">Apagar seta</button>
        <button type="button" class="pop-auto" onclick="resetarConexaoAtual()">Lados automáticos</button>`;
 
+  // "+ Inserir caixa aqui" funciona em qualquer seta: entre duas atividades, ou
+  // envolvendo Início/Fim (inserirNovaCaixa sabe tratar os dois casos).
+  const blocoInserir = `
+    <div class="pop-rodape">
+      <button type="button" class="pop-criar" onclick="abrirCriadorCaixa(event, {origemId:'${origemId}', destinoId:'${destinoId}'}); fecharPopoverConexao();">+ Inserir caixa aqui</button>
+    </div>`;
+
   pop.innerHTML = `
     <div class="pop-header">
-      <span class="pop-titulo">${escaparHTML(rotuloNoComId(origemId))}<br>→ ${escaparHTML(rotuloNoComId(destinoId))}</span>
+      <span class="pop-titulo">${escaparHTML(descricaoNo(origemId))}<br>→ ${escaparHTML(descricaoNo(destinoId))}</span>
       <button type="button" class="pop-fechar" onclick="fecharPopoverConexao()">✕</button>
     </div>
     <div class="pop-grupo">
-      <div class="pop-label">Saída de ${escaparHTML(descricaoNo(origemId))}</div>
+      <div class="pop-label">Saída</div>
       <div class="pop-botoes">${botoesLado("start", override.startSide)}</div>
     </div>
     <div class="pop-grupo">
-      <div class="pop-label">Entrada em ${escaparHTML(descricaoNo(destinoId))}</div>
+      <div class="pop-label">Entrada</div>
       <div class="pop-botoes">${botoesLado("end", override.endSide)}</div>
     </div>
     ${blocoDestino}
+    ${blocoInserir}
     <div class="pop-rodape pop-rodape-acoes">
       ${acoesRodape}
     </div>
@@ -288,50 +296,12 @@ function renderPainelRaias() {
     return;
   }
 
-  // Controles de Início/Fim (ponto 4)
-  const atividades = listaAtividadesSelect();
-  const opcInicio = [`<option value="">Primeira atividade (padrão)</option>`]
-    .concat(atividades.map(a => {
-      const sel = a.id === inicioAlvo ? " selected" : "";
-      return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
-    })).join("");
-  const opcFim = [`<option value="">Última atividade (padrão)</option>`]
-    .concat(atividades.map(a => {
-      const sel = a.id === fimOrigem ? " selected" : "";
-      return `<option value="${escaparHTML(a.id)}"${sel}>${escaparHTML(a.label)}</option>`;
-    })).join("");
-
-  const listaTerminais = (terminais || []).map(t => `
-    <div class="terminal-item">
-      <span>${t.tipo === "inicio" ? "Início" : "Fim"} → ${escaparHTML(t.alvo)} · ${escaparHTML(descricaoNo(t.alvo))}</span>
-      <button type="button" onclick="removerTerminal('${t.id}')" title="Remover">✕</button>
-    </div>`).join("");
-
-  const blocoTerminais = `
-    <div class="terminais-bloco">
-      <div class="terminais-titulo">Início e Fim</div>
-      <div class="terminal-linha">
-        <span class="pop-label">Início conecta em</span>
-        <select class="pop-select" onchange="definirInicioAlvo(this.value)">${opcInicio}</select>
-      </div>
-      <div class="terminal-linha">
-        <span class="pop-label">Fim vem de</span>
-        <select class="pop-select" onchange="definirFimOrigem(this.value)">${opcFim}</select>
-      </div>
-      <div class="terminal-acoes">
-        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('inicio', event)">+ Início</button>
-        <button type="button" class="btn-terminal" onclick="abrirCriadorTerminal('fim', event)">+ Fim</button>
-      </div>
-      ${listaTerminais ? `<div class="terminais-lista">${listaTerminais}</div>` : ""}
-    </div>`;
-
   painel.innerHTML = `
-    ${blocoTerminais}
     <div class="raias-dica">
-      <button type="button" class="btn-nova-seta" onclick="abrirCriadorCaixa(event)">+ Nova caixa</button>
-      <button type="button" class="btn-nova-seta" onclick="abrirCriadorConexao(event)">+ Nova seta</button>
+      <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('inicio', event)">+ Início</button>
+      <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('fim', event)">+ Fim</button>
       <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
-      <span>Clique numa raia para reordená-la, ou numa seta do fluxo para mudar lados, trocar destino ou apagar.</span>
+      <span>Clique numa raia para reordená-la, num Início/Fim para reposicioná-lo, numa caixa para editá-la ou criar uma seta a partir dela, ou numa seta (inclusive de Início/Fim) para mudar lados, inserir uma caixa, trocar destino ou apagar.</span>
     </div>
   `;
 }
@@ -376,7 +346,12 @@ function abrirMoverRaia(nome, ev) {
       <span><b>Mover raia</b></span>
       <button type="button" class="pop-fechar" onclick="fecharMoverRaia()">\u2715</button>
     </div>
-    <div class="pop-titulo">${nEsc}</div>
+    <div class="pop-grupo">
+      <div class="pop-label">Nome da raia</div>
+      <input type="text" class="pop-input" id="renomearRaiaInput" value="${nEsc}"
+        onblur="aplicarRenomearRaia('${nAttr}')"
+        onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}" />
+    </div>
     <div class="raia-mover-acoes">
       <button type="button" class="raia-mv-btn raia-mv-up" onclick="nudgeMoverRaia('${nAttr}',-1)">\u25b2 Subir</button>
       <button type="button" class="raia-mv-btn raia-mv-down" onclick="nudgeMoverRaia('${nAttr}',1)">\u25bc Descer</button>
@@ -404,6 +379,41 @@ function atualizarMoverRaia(nome) {
   if (down) down.disabled = (i === -1 || i >= ordem.length - 1);
 }
 
+// Renomeia a raia (input do popover "Mover raia", ao perder o foco/Enter).
+// A raia não tem UID próprio: sua identidade é o texto em fluxoData[].area,
+// então renomear = trocar esse texto em todas as linhas da raia + em ordemRaias.
+function aplicarRenomearRaia(nomeAntigo) {
+  const input = document.getElementById("renomearRaiaInput");
+  if (!input) return;
+
+  const novoNome = normalizarEspacos(input.value);
+
+  if (!novoNome || novoNome === nomeAntigo) {
+    input.value = nomeAntigo;
+    return;
+  }
+
+  const areasAtuais = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length) ? ultimasAreasOrdenadas : [];
+  const colide = areasAtuais.some(a => a !== nomeAntigo && a.toLocaleLowerCase("pt-BR") === novoNome.toLocaleLowerCase("pt-BR"));
+  if (colide) {
+    mostrarToast(`Já existe uma raia chamada "${novoNome}".`, "alerta");
+    input.value = nomeAntigo;
+    return;
+  }
+
+  fluxoData.forEach(l => { if (l.area === nomeAntigo) l.area = novoNome; });
+  if (Array.isArray(ordemRaias)) {
+    const idx = ordemRaias.indexOf(nomeAntigo);
+    if (idx >= 0) ordemRaias[idx] = novoNome;
+  }
+
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+  fecharMoverRaia();
+  mostrarToast(`Raia renomeada para "${novoNome}".`, "ok");
+}
+
 // Move a raia 1 posição e mantém o popover aberto para reordenar em sequência.
 function nudgeMoverRaia(nome, direcao) {
   moverRaia(nome, direcao); // salva estado + re-renderiza o fluxo
@@ -412,6 +422,160 @@ function nudgeMoverRaia(nome, direcao) {
 
 function fecharMoverRaia() {
   const box = document.getElementById("moverRaia");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
+}
+
+/* =====================================================================
+   Popover "Mover Início/Fim" — reposiciona o terminal trocando a caixa-alvo.
+   Dropdown escolhe a raia; d-pad navega entre as caixas da raia (◀▶ coluna,
+   ▲▼ linha). Excluir remove o terminal. Não toca no desenho/golden: só muda
+   qual caixa o terminal aponta (inicioAlvo/fimOrigem para os padrão, t.alvo
+   para os extras).
+===================================================================== */
+function terminalPorTermId(termId) {
+  const m = String(termId).match(/^__(?:INI|FIMX)_(.+)__$/);
+  if (!m) return null;
+  return (terminais || []).find(t => t.id === m[1]) || null;
+}
+
+function tipoDoTerminal(termId) {
+  if (termId === "__INICIO__" || String(termId).indexOf("__INI_") === 0) return "inicio";
+  return "fim";
+}
+
+function alvoDoTerminal(termId) {
+  const etapas = obterEtapasDaTabela();
+  if (termId === "__INICIO__") {
+    return (inicioAlvo && etapas.some(e => e.id === inicioAlvo)) ? inicioAlvo : (etapas[0] ? etapas[0].id : "");
+  }
+  if (termId === "__FIM__") {
+    return (fimOrigem && etapas.some(e => e.id === fimOrigem)) ? fimOrigem : (etapas.length ? etapas[etapas.length - 1].id : "");
+  }
+  const t = terminalPorTermId(termId);
+  return t ? t.alvo : "";
+}
+
+// Só ajusta o dado (sem salvar/re-renderizar) — usado por quem já vai salvar/
+// renderizar depois de mais alguma coisa (ex.: inserirNovaCaixa, que faz isso uma
+// vez só, no final, depois de mexer em mais de uma coisa).
+function aplicarAlvoTerminal(termId, novoAlvo) {
+  if (!novoAlvo) return false;
+  if (termId === "__INICIO__") { inicioAlvo = novoAlvo; inicioOculto = false; }
+  else if (termId === "__FIM__") { fimOrigem = novoAlvo; fimOculto = false; }
+  else {
+    const t = terminalPorTermId(termId);
+    if (!t) return false;
+    t.alvo = novoAlvo;
+  }
+  return true;
+}
+
+function definirAlvoTerminal(termId, novoAlvo) {
+  if (!aplicarAlvoTerminal(termId, novoAlvo)) return;
+  salvarEstadoLocal(true);
+  gerarFluxo();
+}
+
+function abrirMoverTerminal(termId, ev) {
+  const tipo = tipoDoTerminal(termId);
+  const nome = tipo === "inicio" ? "Início" : "Fim";
+  const etapas = obterEtapasDaTabela();
+  const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
+    ? ultimasAreasOrdenadas
+    : Array.from(new Set(etapas.map(e => e.area).filter(a => limpar(a || "") !== "")));
+  const alvo = alvoDoTerminal(termId);
+  const at = etapas.find(e => e.id === alvo);
+  const raiaAtual = at ? at.area : "";
+
+  mostrarBackdropEditor();
+  let box = document.getElementById("moverTerminal");
+  if (!box) { box = document.createElement("div"); box.id = "moverTerminal"; document.body.appendChild(box); }
+
+  const optAreas = areas.map(a => `<option value="${escaparHTML(a)}" ${a === raiaAtual ? "selected" : ""}>${escaparHTML(a)}</option>`).join("");
+  const idAttr = String(termId).replace(/'/g, "\\'");
+
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Mover ${nome}</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharMoverTerminal()">\u2715</button>
+    </div>
+    <div class="pop-grupo">
+      <div class="pop-label">Raia (\u00e1rea)</div>
+      <select id="moverTerminalRaia" class="pop-select" onchange="trocarRaiaTerminal('${idAttr}')">${optAreas}</select>
+    </div>
+    <div class="mover-dpad">
+      <button type="button" class="dpad-btn dpad-up" title="Caixa acima" onclick="nudgeMoverTerminal('${idAttr}',0,-1)">\u25b2</button>
+      <button type="button" class="dpad-btn dpad-left" title="Caixa \u00e0 esquerda" onclick="nudgeMoverTerminal('${idAttr}',-1,0)">\u25c0</button>
+      <div class="dpad-center" id="moverTerminalLabel">${escaparHTML(alvo || "\u2014")}</div>
+      <button type="button" class="dpad-btn dpad-right" title="Caixa \u00e0 direita" onclick="nudgeMoverTerminal('${idAttr}',1,0)">\u25b6</button>
+      <button type="button" class="dpad-btn dpad-down" title="Caixa abaixo" onclick="nudgeMoverTerminal('${idAttr}',0,1)">\u25bc</button>
+    </div>
+    <div class="mover-dica">Conecta na caixa acima \u00b7 \u25c0\u25b6 coluna \u00b7 \u25b2\u25bc linha</div>
+    <div class="pop-rodape">
+      <button type="button" class="pop-seta-btn" onclick="abrirCriadorTerminal('${tipo}', event); fecharMoverTerminal();">${tipo === "inicio" ? "+ Seta a partir daqui" : "+ Seta at\u00e9 aqui"}</button>
+    </div>
+    <button type="button" class="raia-mv-btn terminal-excluir" onclick="excluirTerminal('${idAttr}')">\u2715 Excluir ${nome}</button>
+  `;
+  posicionarFlutuante(box, { clientX: ev && ev.clientX, clientY: ev && ev.clientY });
+}
+
+function atualizarLabelMoverTerminal(termId) {
+  const alvo = alvoDoTerminal(termId);
+  const lbl = document.getElementById("moverTerminalLabel");
+  if (lbl) lbl.textContent = alvo || "\u2014";
+  const sel = document.getElementById("moverTerminalRaia");
+  if (sel) {
+    const at = obterEtapasDaTabela().find(e => e.id === alvo);
+    if (at) sel.value = at.area;
+  }
+}
+
+function nudgeMoverTerminal(termId, dCol, dLin) {
+  const etapas = obterEtapasDaTabela();
+  const alvo = alvoDoTerminal(termId);
+  const at = etapas.find(e => e.id === alvo);
+  if (!at) return;
+  const area = at.area;
+  const c = Number(at.coluna) || 1, l = Number(at.linha) || 1;
+  const mesma = etapas.filter(e => e.area === area && e.id !== alvo)
+    .map(e => ({ id: e.id, c: Number(e.coluna) || 1, l: Number(e.linha) || 1 }));
+  let cand = null;
+  if (dCol !== 0) {
+    cand = mesma.filter(e => dCol > 0 ? e.c > c : e.c < c)
+      .sort((a, b) => Math.abs(a.c - c) - Math.abs(b.c - c) || Math.abs(a.l - l) - Math.abs(b.l - l))[0];
+  } else {
+    cand = mesma.filter(e => dLin > 0 ? e.l > l : e.l < l)
+      .sort((a, b) => Math.abs(a.l - l) - Math.abs(b.l - l) || Math.abs(a.c - c) - Math.abs(b.c - c))[0];
+  }
+  if (!cand) { mostrarToast("N\u00e3o h\u00e1 caixa nessa dire\u00e7\u00e3o dentro da raia.", "alerta"); return; }
+  definirAlvoTerminal(termId, cand.id);
+  atualizarLabelMoverTerminal(termId);
+}
+
+function trocarRaiaTerminal(termId) {
+  const sel = document.getElementById("moverTerminalRaia");
+  if (!sel || !sel.value) return;
+  const naRaia = obterEtapasDaTabela().filter(e => e.area === sel.value)
+    .sort((a, b) => (Number(a.coluna) || 1) - (Number(b.coluna) || 1) || (Number(a.linha) || 1) - (Number(b.linha) || 1));
+  if (!naRaia.length) { mostrarToast("Essa raia n\u00e3o tem caixas.", "alerta"); return; }
+  const alvo = tipoDoTerminal(termId) === "inicio" ? naRaia[0].id : naRaia[naRaia.length - 1].id;
+  definirAlvoTerminal(termId, alvo);
+  atualizarLabelMoverTerminal(termId);
+}
+
+function excluirTerminal(termId) {
+  if (termId === "__INICIO__") inicioOculto = true;
+  else if (termId === "__FIM__") fimOculto = true;
+  else { const t = terminalPorTermId(termId); if (t) terminais = terminais.filter(x => x.id !== t.id); }
+  salvarEstadoLocal(true);
+  gerarFluxo();
+  fecharMoverTerminal();
+  mostrarToast(`${tipoDoTerminal(termId) === "inicio" ? "In\u00edcio" : "Fim"} removido.`, "ok");
+}
+
+function fecharMoverTerminal() {
+  const box = document.getElementById("moverTerminal");
   if (box) box.style.display = "none";
   esconderBackdropEditor();
 }
@@ -439,6 +603,7 @@ function resetarAjustesFluxo() {
   inicioAlvo = "";
   fimOrigem = "";
   inicioOculto = false;
+  fimOculto = false;
   conexaoSelecionada = null;
   // limpa marcações de "sem saída" feitas manualmente
   fluxoData.forEach(l => { if (l) l.semSaida = false; });
@@ -448,13 +613,28 @@ function resetarAjustesFluxo() {
   mostrarToast("Ajustes manuais removidos. Fluxo voltou ao automático.", "ok");
 }
 
-/* Fecha o popover ao clicar fora dele (e fora das setas) */
+/* Fecha os popovers do editor ao clicar fora deles. Não fecha se o clique foi:
+   - dentro de algum popover aberto (não interrompe o que o usuário está fazendo);
+   - num elemento que ELE MESMO abre/troca um popover (caixa, seta, raia, terminal) —
+     senão o popover abriria e seria fechado no mesmo clique. */
 document.addEventListener("click", (event) => {
-  const pop = document.getElementById("popoverConexao");
-  if (!pop || pop.style.display === "none") return;
-  if (event.target.closest("#popoverConexao")) return;
-  if (event.target.closest("g.editor-ui")) return;
+  if (!event.target || !event.target.closest) return;
+  if (event.target.closest(
+    "#popoverConexao, #moverCaixa, #moverRaia, #moverTerminal, " +
+    "#criadorConexao, #criadorCaixa, #criadorTerminal"
+  )) return;
+  if (event.target.closest("g.editor-ui")) return; // caixas e setas (área de clique do SVG)
+  if (event.target.closest("[data-raia]")) return;   // cabeçalho de raia
+  if (event.target.closest("[data-terminal]")) return; // ícone Início/Fim
+  if (event.target.closest(".raias-dica")) return;   // + Caixa / + Início / + Fim / Resetar
+
   fecharPopoverConexao();
+  fecharMoverCaixa();
+  fecharMoverRaia();
+  fecharMoverTerminal();
+  fecharCriadorConexao();
+  fecharCriadorCaixa();
+  fecharCriadorTerminal();
 });
 
 /* =====================================================================
@@ -680,10 +860,16 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
   mostrarToast(`Nova seta criada: ${origemVisual} → ${destinoVisual}.`, "ok");
 }
 
-/* ---------- Criador de nova conexão (formulário flutuante) ---------- */
-function abrirCriadorConexao(ev) {
-  const atividades = listaAtividadesSelect();
-  if (atividades.length < 2) {
+/* ---------- Criador de nova conexão (formulário flutuante) ----------
+   Sempre aberto a partir de uma caixa (popover "Mover caixa" -> "+ Seta"):
+   a origem é essa caixa, travada; só falta escolher destino e tipo. */
+function abrirCriadorConexao(uidOrigem, ev) {
+  const { uidParaVisual } = mapaIdVisualUid();
+  const origemVisual = uidParaVisual[uidOrigem];
+  if (!origemVisual) return;
+
+  const atividades = listaAtividadesSelect().filter(a => a.id !== origemVisual);
+  if (!atividades.length) {
     mostrarToast("É preciso ter ao menos duas atividades para criar uma seta.", "alerta");
     return;
   }
@@ -707,7 +893,8 @@ function abrirCriadorConexao(ev) {
     </div>
     <div class="pop-grupo">
       <div class="pop-label">De (origem)</div>
-      <select id="novaConexaoOrigem" class="pop-select">${opcoes}</select>
+      <div class="pop-origem-fixa">${escaparHTML(rotuloNoComId(origemVisual))}</div>
+      <input type="hidden" id="novaConexaoOrigem" value="${escaparHTML(origemVisual)}" />
     </div>
     <div class="pop-grupo">
       <div class="pop-label">Para (destino)</div>
@@ -725,10 +912,6 @@ function abrirCriadorConexao(ev) {
       <button type="button" class="pop-criar" onclick="confirmarCriarConexao()">Criar seta</button>
     </div>
   `;
-
-  // pré-seleciona destino diferente da origem
-  const selDest = box.querySelector("#novaConexaoDestino");
-  if (atividades.length > 1) selDest.selectedIndex = 1;
 
   posicionarFlutuante(box, ev);
 }
@@ -885,6 +1068,7 @@ function mostrarBackdropEditor() {
       fecharCriadorCaixa();
       fecharMoverCaixa();
       fecharMoverRaia();
+      fecharMoverTerminal();
     });
     document.body.appendChild(bd);
   }
@@ -898,12 +1082,14 @@ function esconderBackdropEditor() {
   const cx = document.getElementById("criadorCaixa");
   const mv = document.getElementById("moverCaixa");
   const mr = document.getElementById("moverRaia");
+  const mt = document.getElementById("moverTerminal");
   const algumAberto =
     (t && t.style.display === "block") ||
     (c && c.style.display === "block") ||
     (cx && cx.style.display === "block") ||
     (mv && mv.style.display === "block") ||
-    (mr && mr.style.display === "block");
+    (mr && mr.style.display === "block") ||
+    (mt && mt.style.display === "block");
   if (bd && !algumAberto) bd.classList.remove("show");
 }
 
@@ -942,27 +1128,47 @@ function posicionarFlutuante(box, ev) {
    ONDA 2.7 — Inserir nova caixa (atividade/decisão) pelo desenho
 ===================================================================== */
 
-/* Lista de conexões existentes (para "inserir no meio") */
-function listaConexoesExistentes() {
-  const { uidParaVisual } = mapaIdVisualUid();
-  const itens = [];
-  fluxoData.forEach((l) => {
-    if (limpar(l.atividade || "") === "") return;
-    const oVis = uidParaVisual[l.uid];
-    if (!oVis) return;
-    const add = (dUid) => {
-      const dVis = uidParaVisual[dUid];
-      if (!dVis) return;
-      itens.push({
-        value: `${oVis}__${dVis}`,
-        label: `${oVis} · ${descricaoNo(oVis)} → ${dVis} · ${descricaoNo(dVis)}`
-      });
-    };
-    if (l.proxSim) add(l.proxSim);
-    if (l.proxNao) add(l.proxNao);
-    (l.extras || []).forEach(add);
-  });
-  return itens;
+// Reletra TODA referência guardada por letra (A/B/C...) depois que a ordem do array
+// muda (ex.: uma caixa foi inserida no meio): as chaves de overridesConexoes/
+// rotulosConexoes ("X__Y") E os alvos de terminal (inicioAlvo, fimOrigem,
+// terminais[].alvo — também guardados como letra, não uid). A letra é só posição; o
+// que ela representa (par de UIDs, ou uma caixa-alvo) continua o mesmo, mas a chave/
+// valor guardado usa a letra ANTIGA. Sem reletrar, o estilo/rótulo de uma seta ou o
+// alvo de um Início/Fim "somem"/apontam pro lugar errado (a busca não bate mais com
+// o que a tela desenha). Terminal (__INICIO__/__FIM__) não é letra posicional, fica
+// intocado nas CHAVES de overridesConexoes/rotulosConexoes.
+function reletrarReferenciasVisuais(mapaAntes, mapaDepois) {
+  if (!mapaAntes || !mapaDepois) return;
+
+  const reletrarLetra = (letra) => {
+    if (!letra) return letra;
+    const uid = mapaAntes.visualParaUid[letra];
+    return (uid && mapaDepois.uidParaVisual[uid]) ? mapaDepois.uidParaVisual[uid] : letra;
+  };
+
+  const reletrarObjeto = (obj) => {
+    const novo = {};
+    Object.keys(obj).forEach((chave) => {
+      // Token de terminal (ex.: "__INICIO__") já contém "__" dentro dele — um
+      // split ingênuo por "__" quebraria o token ao meio e corromperia a chave.
+      // Só reletra quando a chave é claramente "duas letras normais" (exatamente
+      // 2 pedaços); chave envolvendo Início/Fim fica intocada (mais seguro deixar
+      // de reletrar esse caso raro do que arriscar corromper a chave).
+      const partes = chave.split("__");
+      if (partes.length !== 2) { novo[chave] = obj[chave]; return; }
+      const [a, b] = partes;
+      novo[chaveOverride(reletrarLetra(a), reletrarLetra(b))] = obj[chave];
+    });
+    return novo;
+  };
+  overridesConexoes = reletrarObjeto(overridesConexoes || {});
+  rotulosConexoes = reletrarObjeto(rotulosConexoes || {});
+
+  if (typeof inicioAlvo !== "undefined") inicioAlvo = reletrarLetra(inicioAlvo);
+  if (typeof fimOrigem !== "undefined") fimOrigem = reletrarLetra(fimOrigem);
+  if (Array.isArray(terminais)) {
+    terminais.forEach((t) => { if (t) t.alvo = reletrarLetra(t.alvo); });
+  }
 }
 
 function inserirNovaCaixa(opts) {
@@ -994,36 +1200,111 @@ function inserirNovaCaixa(opts) {
     cor: "white",
     proxSim: "", proxSimAuto: false, proxNao: "", extras: [], semSaida: false
   };
-  fluxoData.push(nova);
 
-  // Conexão "no meio de uma seta existente": origem→destino vira origem→nova→destino
-  if (opts.inserirEntre && opts.inserirEntre.includes("__")) {
-    const [oVis, dVis] = opts.inserirEntre.split("__");
-    const mapa = mapaIdVisualUid();
-    const oUid = mapa.visualParaUid[oVis];
-    const dUid = mapa.visualParaUid[dVis];
-    const origemLinha = fluxoData.find(l => l.uid === oUid);
-    if (origemLinha && dUid) {
-      // redireciona a saída origem→destino para origem→nova (mantém o slot Sim/Não)
-      if (origemLinha.proxSim === dUid) origemLinha.proxSim = novoUid;
-      else if (origemLinha.proxNao === dUid) origemLinha.proxNao = novoUid;
-      else if (Array.isArray(origemLinha.extras)) {
-        const i = origemLinha.extras.indexOf(dUid);
-        if (i !== -1) origemLinha.extras[i] = novoUid;
-      }
-      nova.proxSim = dUid;        // nova → destino
-      origemLinha.semSaida = false;
+  // Resolve ANTES de tocar no array: onde a nova linha entra na lista e o que ela
+  // está "cortando" — pode ser uma seta entre duas atividades, uma saindo do
+  // Início, ou uma entrando no Fim (opts.origemId/destinoId, vindo do popover da
+  // seta clicada). Crítico inserir na posição certa (logo após a origem, ou logo
+  // antes do destino no caso do Início), não empilhar no fim: reaplicarSugestoesConexao
+  // (chamada pelo gerarFluxo logo abaixo) recalcula toda ligação "automática" pela
+  // ORDEM DO ARRAY — empilhar no fim desfaz religações e inventa ligações fantasma.
+  const ehTerminal = (id) => typeof id === "string" && id.startsWith("__");
 
-      // transfere rótulo/override da seta antiga para o novo trecho origem→nova
-      const novaVis = mapa.uidParaVisual[novoUid];
-      const chaveAntiga = chaveOverride(oVis, dVis);
-      const chaveNova = chaveOverride(oVis, novaVis);
-      if (rotulosConexoes[chaveAntiga] !== undefined) {
-        rotulosConexoes[chaveNova] = rotulosConexoes[chaveAntiga];
-        delete rotulosConexoes[chaveAntiga];
+  const oVis = opts.origemId || null;
+  const dVis = opts.destinoId || null;
+
+  let origemLinha = null, destinoLinha = null, dUid = null;
+  let terminalOrigemId = null, terminalDestinoId = null;
+  let chaveAntiga = null, mapaAntes = null;
+  let indiceInsercao = fluxoData.length; // padrão: solta, no fim (como sempre foi)
+
+  if (oVis && dVis) {
+    mapaAntes = mapaIdVisualUid();
+
+    if (ehTerminal(oVis)) {
+      // Início (padrão ou extra) → X: a nova entra ANTES de X.
+      dUid = mapaAntes.visualParaUid[dVis];
+      destinoLinha = dUid ? fluxoData.find(l => l.uid === dUid) : null;
+      if (destinoLinha) {
+        indiceInsercao = fluxoData.indexOf(destinoLinha);
+        terminalOrigemId = oVis;
       }
+    } else if (ehTerminal(dVis)) {
+      // X → Fim (padrão ou extra): a nova entra DEPOIS de X.
+      const oUid = mapaAntes.visualParaUid[oVis];
+      const origemIndex = fluxoData.findIndex(l => l.uid === oUid);
+      origemLinha = origemIndex >= 0 ? fluxoData[origemIndex] : null;
+      if (origemLinha) {
+        indiceInsercao = origemIndex + 1;
+        terminalDestinoId = dVis;
+      }
+    } else {
+      // Caso normal: atividade → atividade.
+      const oUid = mapaAntes.visualParaUid[oVis];
+      dUid = mapaAntes.visualParaUid[dVis];
+      const origemIndex = fluxoData.findIndex(l => l.uid === oUid);
+      origemLinha = origemIndex >= 0 ? fluxoData[origemIndex] : null;
+      if (origemLinha && dUid) {
+        indiceInsercao = origemIndex + 1;
+        chaveAntiga = chaveOverride(oVis, dVis);
+      } else {
+        origemLinha = null;
+      }
+    }
+  }
+
+  fluxoData.splice(indiceInsercao, 0, nova);
+  const mapaPos = mapaAntes ? mapaIdVisualUid() : null;
+
+  if (terminalOrigemId && destinoLinha) {
+    // Início → Nova → destino (destino era o alvo do terminal antes da inserção).
+    nova.proxSim = destinoLinha.uid;
+    reletrarReferenciasVisuais(mapaAntes, mapaPos); // primeiro corrige o que "andou"
+    aplicarAlvoTerminal(terminalOrigemId, mapaPos.uidParaVisual[novoUid]); // depois, o alvo novo (não pode ser pego pelo reletrar acima)
+  } else if (terminalDestinoId && origemLinha) {
+    // origem → Nova → Fim (origem antes ia direto pro Fim).
+    origemLinha.proxSim = novoUid;
+    origemLinha.proxSimAuto = false;
+    origemLinha.simRemovido = false;
+    origemLinha.semSaida = false;
+    reletrarReferenciasVisuais(mapaAntes, mapaPos);
+    aplicarAlvoTerminal(terminalDestinoId, mapaPos.uidParaVisual[novoUid]);
+  } else if (origemLinha && dUid) {
+    // redireciona a saída origem→destino para origem→nova (mantém o slot Sim/Não)
+    if (origemLinha.proxSim === dUid) {
+      origemLinha.proxSim = novoUid;
+      origemLinha.proxSimAuto = false; // trava: senão reaplicarSugestoesConexao desfaz
+      origemLinha.simRemovido = false;
+    } else if (origemLinha.proxNao === dUid) {
+      origemLinha.proxNao = novoUid;
+    } else if (Array.isArray(origemLinha.extras)) {
+      const i = origemLinha.extras.indexOf(dUid);
+      if (i !== -1) origemLinha.extras[i] = novoUid;
+    }
+    nova.proxSim = dUid;        // nova → destino
+    origemLinha.semSaida = false;
+
+    // transfere rótulo/override da seta antiga para o novo trecho origem→nova
+    // (usa o mapa DEPOIS do splice — o id visual da nova linha só existe agora)
+    const oVisAtual = mapaPos.uidParaVisual[origemLinha.uid];
+    const novaVis = mapaPos.uidParaVisual[novoUid];
+    const chaveNova = chaveOverride(oVisAtual, novaVis);
+    if (rotulosConexoes[chaveAntiga] !== undefined) {
+      rotulosConexoes[chaveNova] = rotulosConexoes[chaveAntiga];
+      delete rotulosConexoes[chaveAntiga];
+    }
+    if (overridesConexoes[chaveAntiga] !== undefined) {
+      overridesConexoes[chaveNova] = overridesConexoes[chaveAntiga];
       delete overridesConexoes[chaveAntiga];
     }
+
+    // Reletra TODAS as outras chaves/alvos que ficaram com a letra desatualizada
+    // por causa do deslocamento no array (ex.: uma seta extra A→C, sem nada a ver
+    // com essa inserção, vira A→D porque a caixa que era "C" empurrou pra frente).
+    // O que a letra representa não muda — só a letra. Sem isso, o estilo/rótulo/
+    // alvo referente a essas outras coisas "some" (a busca não bate mais com o que
+    // a tela desenha).
+    reletrarReferenciasVisuais(mapaAntes, mapaPos);
   }
 
   salvarEstadoLocal(true);
@@ -1032,15 +1313,14 @@ function inserirNovaCaixa(opts) {
   mostrarToast(`Caixa "${atividade}" inserida na coluna ${col}.`, "ok");
 }
 
-/* ---------- Formulário flutuante de Nova caixa ---------- */
-function abrirCriadorCaixa(ev) {
-  const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
-    ? ultimasAreasOrdenadas
-    : Array.from(new Set(fluxoData.map(l => l.area).filter(a => limpar(a || "") !== "")));
-  if (!areas.length) {
-    mostrarToast("Crie ao menos uma atividade/raia antes de inserir caixas.", "alerta");
-    return;
-  }
+/* ---------- Formulário flutuante de Nova caixa ----------
+   Só abre a partir de "+ Inserir caixa aqui", no popover de uma seta (qualquer
+   uma — entre atividades, ou envolvendo Início/Fim). O contexto {origemId,
+   destinoId} da seta clicada vem sempre preenchido; guarda em box.dataset pra
+   confirmarCriarCaixa() ler depois. Raia/Coluna/Linha são calculados a partir da
+   caixa de referência da seta — só sobra Tipo + Texto pra preencher. */
+function abrirCriadorCaixa(ev, contextoConexao) {
+  if (!contextoConexao || !contextoConexao.origemId || !contextoConexao.destinoId) return;
 
   mostrarBackdropEditor();
   let box = document.getElementById("criadorCaixa");
@@ -1050,17 +1330,15 @@ function abrirCriadorCaixa(ev) {
     document.body.appendChild(box);
   }
 
-  const optAreas = areas.map(a => `<option value="${escaparHTML(a)}">${escaparHTML(a)}</option>`).join("");
-  const conex = listaConexoesExistentes();
-  const optConex = [`<option value="">Deixar solta (conecto depois)</option>`]
-    .concat(conex.map(c => `<option value="${escaparHTML(c.value)}">${escaparHTML(c.label)}</option>`))
-    .join("");
+  box.dataset.contexto = JSON.stringify(contextoConexao);
+  const tituloContexto = `<div class="pop-titulo">${escaparHTML(descricaoNo(contextoConexao.origemId))}<br>→ nova →<br>${escaparHTML(descricaoNo(contextoConexao.destinoId))}</div>`;
 
   box.innerHTML = `
     <div class="pop-header">
       <span><b>Nova caixa</b></span>
       <button type="button" class="pop-fechar" onclick="fecharCriadorCaixa()">✕</button>
     </div>
+    ${tituloContexto}
     <div class="pop-grupo">
       <div class="pop-label">Tipo</div>
       <select id="novaCaixaTipo" class="pop-select">
@@ -1072,24 +1350,6 @@ function abrirCriadorCaixa(ev) {
       <div class="pop-label">Texto da atividade</div>
       <input type="text" id="novaCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
     </div>
-    <div class="pop-grupo">
-      <div class="pop-label">Raia (área)</div>
-      <select id="novaCaixaArea" class="pop-select">${optAreas}</select>
-    </div>
-    <div class="pop-grupo pop-grupo-linha">
-      <div>
-        <div class="pop-label">Coluna</div>
-        <input type="number" id="novaCaixaColuna" class="pop-select" min="1" value="1" />
-      </div>
-      <div>
-        <div class="pop-label">Linha</div>
-        <input type="number" id="novaCaixaLinha" class="pop-select" min="1" value="1" />
-      </div>
-    </div>
-    <div class="pop-grupo">
-      <div class="pop-label">Conexão</div>
-      <select id="novaCaixaEntre" class="pop-select">${optConex}</select>
-    </div>
     <div class="pop-rodape pop-rodape-acoes">
       <button type="button" class="pop-criar" onclick="confirmarCriarCaixa()">Inserir caixa</button>
     </div>
@@ -1098,13 +1358,36 @@ function abrirCriadorCaixa(ev) {
 }
 
 function confirmarCriarCaixa() {
+  const box = document.getElementById("criadorCaixa");
+  const contexto = (box && box.dataset.contexto) ? JSON.parse(box.dataset.contexto) : null;
+  if (!contexto) return;
+
+  const tipo = (document.getElementById("novaCaixaTipo") || {}).value;
+  const atividade = (document.getElementById("novaCaixaTexto") || {}).value;
+  const { origemId, destinoId } = contexto;
+  const ehTerminal = (id) => typeof id === "string" && id.startsWith("__");
+  const { visualParaUid } = mapaIdVisualUid();
+
+  // Referência de área/coluna/linha: a atividade real dos dois lados da seta.
+  // Início→X: a referência é X, e a nova caixa entra ANTES dele (mesma coluna de
+  // X, empurrando X pra frente). X→Fim: a referência é X, e a nova caixa entra
+  // DEPOIS dele (coluna+1), igual ao caso normal atividade→atividade.
+  const idReferencia = ehTerminal(origemId) ? destinoId : origemId;
+  const referencia = fluxoData.find(l => l.uid === visualParaUid[idReferencia]);
+  if (!referencia) {
+    mostrarToast("Não encontrei a caixa de referência dessa seta.", "erro");
+    return;
+  }
+  const colunaRef = Number(referencia.coluna) || 1;
+
   inserirNovaCaixa({
-    tipo: (document.getElementById("novaCaixaTipo") || {}).value,
-    atividade: (document.getElementById("novaCaixaTexto") || {}).value,
-    area: (document.getElementById("novaCaixaArea") || {}).value,
-    coluna: (document.getElementById("novaCaixaColuna") || {}).value,
-    linha: (document.getElementById("novaCaixaLinha") || {}).value,
-    inserirEntre: (document.getElementById("novaCaixaEntre") || {}).value
+    tipo,
+    atividade,
+    area: referencia.area,
+    coluna: ehTerminal(origemId) ? colunaRef : colunaRef + 1,
+    linha: referencia.linha,
+    origemId,
+    destinoId
   });
   fecharCriadorCaixa();
 }
@@ -1146,7 +1429,29 @@ function abrirMoverCaixa(uid, ev) {
       <span><b>Mover caixa</b></span>
       <button type="button" class="pop-fechar" onclick="fecharMoverCaixa()">\u2715</button>
     </div>
-    <div class="pop-titulo">${escaparHTML(limpar(linha.atividade || "") || "(sem nome)")}</div>
+    <div class="pop-grupo">
+      <div class="pop-label">Texto da caixa</div>
+      <textarea class="pop-textarea" id="editarAtividadeCaixa" rows="2"
+        onblur="aplicarEditarAtividadeCaixa('${uid}')"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault(); this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}"
+      >${escaparHTML(limpar(linha.atividade || ""))}</textarea>
+    </div>
+    <div class="pop-grupo-linha">
+      <div class="pop-grupo">
+        <div class="pop-label">Sistema</div>
+        <input type="text" class="pop-input" id="editarSistemaCaixa" list="sugestoes-sistema"
+          value="${escaparHTML(limpar(linha.sistema || ""))}"
+          onblur="aplicarEditarCampoCaixa('${uid}','sistema')"
+          onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}" />
+      </div>
+      <div class="pop-grupo">
+        <div class="pop-label">Tempo</div>
+        <input type="text" class="pop-input" id="editarTempoCaixa"
+          value="${escaparHTML(limpar(linha.tempo || ""))}"
+          onblur="aplicarEditarCampoCaixa('${uid}','tempo')"
+          onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}" />
+      </div>
+    </div>
     <div class="pop-grupo">
       <div class="pop-label">Raia (\u00e1rea)</div>
       <select id="moverArea" class="pop-select" onchange="aplicarMoverArea('${uid}')">${optAreas}</select>
@@ -1159,8 +1464,26 @@ function abrirMoverCaixa(uid, ev) {
       <button type="button" class="dpad-btn dpad-down" title="Descer linha" onclick="nudgeMoverCaixa('${uid}',0,1)">\u25bc</button>
     </div>
     <div class="mover-dica">\u25b2\u25bc muda a linha \u00b7 \u25c0\u25b6 muda a coluna</div>
+    <div class="pop-rodape">
+      <button type="button" class="pop-seta-btn" onclick="abrirCriadorConexao('${uid}', event); fecharMoverCaixa();">+ Seta a partir daqui</button>
+    </div>
+    <button type="button" class="raia-mv-btn terminal-excluir" onclick="excluirCaixaEditor('${uid}')">\u2715 Excluir caixa</button>
   `;
   posicionarFlutuante(box, ev);
+}
+
+// Exclui a caixa pelo popover "Mover caixa", reusando excluirLinha (mesma fun\u00e7\u00e3o do
+// bot\u00e3o de excluir da tabela): j\u00e1 confirma se a caixa est\u00e1 conectada em outras linhas,
+// remove as refer\u00eancias \u00f3rf\u00e3s e reaplica posi\u00e7\u00f5es/conex\u00f5es. S\u00f3 diferencia detectando
+// se o usu\u00e1rio cancelou o confirm() (fluxoData n\u00e3o mudou de tamanho) pra n\u00e3o fechar o
+// popover nem re-renderizar \u00e0 toa.
+function excluirCaixaEditor(uid) {
+  const antes = fluxoData.length;
+  excluirLinha(uid);
+  if (fluxoData.length === antes) return;
+  gerarFluxo();
+  fecharMoverCaixa();
+  mostrarToast("Caixa exclu\u00edda.", "ok");
 }
 
 function aplicarMoverArea(uid) {
@@ -1174,6 +1497,58 @@ function aplicarMoverArea(uid) {
   salvarEstadoLocal(true);
   atualizarTabela();
   gerarFluxo();
+}
+
+// Edita o texto (atividade) da caixa direto pelo popover "Mover caixa", ao
+// perder o foco/Enter. Reusa finalizarCampoNormalizado (mesma normalização da
+// tabela) para manter os dois pontos de edição consistentes.
+function aplicarEditarAtividadeCaixa(uid) {
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+  const el = document.getElementById("editarAtividadeCaixa");
+  if (!el) return;
+
+  const bruto = normalizarEspacos(el.value);
+  const atual = normalizarEspacos(linha.atividade || "");
+
+  if (!bruto) {
+    el.value = linha.atividade || "";
+    mostrarToast("O texto da caixa não pode ficar em branco.", "alerta");
+    return;
+  }
+  if (bruto === atual) {
+    el.value = linha.atividade || "";
+    return;
+  }
+
+  finalizarCampoNormalizado(uid, "atividade", el);
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+  mostrarToast("Texto da caixa atualizado.", "ok");
+}
+
+// Edita Sistema ou Tempo da caixa pelo popover "Mover caixa" (ambos opcionais,
+// sem guarda de campo vazio, diferente da atividade). Mesma normalização da tabela.
+function aplicarEditarCampoCaixa(uid, campo) {
+  const linha = fluxoData.find(l => l.uid === uid);
+  if (!linha) return;
+  const idEl = campo === "sistema" ? "editarSistemaCaixa" : "editarTempoCaixa";
+  const el = document.getElementById(idEl);
+  if (!el) return;
+
+  const bruto = normalizarEspacos(el.value);
+  const atual = normalizarEspacos(linha[campo] || "");
+  if (bruto === atual) {
+    el.value = linha[campo] || "";
+    return;
+  }
+
+  finalizarCampoNormalizado(uid, campo, el);
+  salvarEstadoLocal(true);
+  atualizarTabela();
+  gerarFluxo();
+  mostrarToast(`${campo === "sistema" ? "Sistema" : "Tempo"} atualizado.`, "ok");
 }
 
 // Move a caixa 1 passo: dCol (-1 esquerda / +1 direita), dLin (-1 sobe / +1 desce).

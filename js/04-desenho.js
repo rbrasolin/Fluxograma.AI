@@ -260,6 +260,21 @@ function limparTudo() {
   uidCounter = 1;
   ultimoNomeArquivo = "fluxograma_processo";
 
+  // Reseta o estado do editor junto com o fluxo. Sem isso, terminais/raias/
+  // ajustes órfãos permanecem em memória e a validação continua acusando
+  // terminais que apontam para caixas já removidas.
+  terminais = [];
+  inicioAlvo = "";
+  fimOrigem = "";
+  inicioOculto = false;
+  fimOculto = false;
+  overridesConexoes = {};
+  rotulosConexoes = {};
+  ordemRaias = [];
+  conexaoSelecionada = null;
+  filtroAnaliseArea = "";
+  terminalCounter = 1;
+
   const diagram = document.getElementById("diagram");
   const infoProcesso = document.getElementById("infoProcesso");
   const metricas = document.getElementById("metricas");
@@ -267,6 +282,14 @@ function limparTudo() {
   if (diagram) diagram.innerHTML = "";
   if (infoProcesso) infoProcesso.innerHTML = "";
   if (metricas) metricas.innerHTML = "";
+
+  // Esconde o painel de validação (volta ao estado inicial oculto).
+  const painelValidacao = document.getElementById("painelValidacao");
+  if (painelValidacao) {
+    painelValidacao.innerHTML = "";
+    painelValidacao.className = "";
+    painelValidacao.style.display = "none";
+  }
 
   limparEstadoLocal();
 
@@ -328,6 +351,7 @@ function desenharCapsula(svg, texto, x, y, width = 60, height = 36) {
   g.appendChild(t);
 
   svg.appendChild(g);
+  return g;
 }
 
 function desenharNo(svg, etapa, pos) {
@@ -443,6 +467,14 @@ function desenharRaias(svg, areasOrdenadas, lanes, svgWidth) {
   configurarCliqueRaiasTela();
 }
 
+// Marca um terminal (Início/Fim) desenhado na TELA como clicável.
+// Recebe o <g> retornado por desenharCapsula. Não é chamado no pipeline Excel.
+function marcarTerminalTela(g, id) {
+  if (!g || !g.setAttribute) return;
+  g.setAttribute("data-terminal", id);
+  g.setAttribute("class", "terminal-clicavel");
+}
+
 // Delegação de clique nas raias — SOMENTE na tela. Registra no #diagram uma
 // única vez (guard via dataset). Ao clicar no cabeçalho/nome de uma raia
 // (elementos com data-raia), abre o popover de reordenação. Não afeta o SVG
@@ -452,11 +484,18 @@ function configurarCliqueRaiasTela() {
   if (!diagram || diagram.dataset.raiaClickConfigurado === "1") return;
   diagram.dataset.raiaClickConfigurado = "1";
   diagram.addEventListener("click", (ev) => {
-    // Só reordena raias com o modo "Ajustar fluxo" ativo — mesmo padrão das caixas/setas.
+    // Só reordena raias / move terminais com o modo "Ajustar fluxo" ativo.
     if (typeof modoEdicaoAtivo !== "undefined" && !modoEdicaoAtivo) return;
-    const alvo = (ev.target && ev.target.closest) ? ev.target.closest("[data-raia]") : null;
-    const nome = alvo && alvo.getAttribute("data-raia");
-    if (nome && typeof abrirMoverRaia === "function") abrirMoverRaia(nome, ev);
+    if (!ev.target || !ev.target.closest) return;
+    const raia = ev.target.closest("[data-raia]");
+    if (raia && raia.getAttribute("data-raia") && typeof abrirMoverRaia === "function") {
+      abrirMoverRaia(raia.getAttribute("data-raia"), ev);
+      return;
+    }
+    const term = ev.target.closest("[data-terminal]");
+    if (term && term.getAttribute("data-terminal") && typeof abrirMoverTerminal === "function") {
+      abrirMoverTerminal(term.getAttribute("data-terminal"), ev);
+    }
   });
 }
 

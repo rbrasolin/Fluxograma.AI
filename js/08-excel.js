@@ -397,7 +397,7 @@ function gerarFluxoExcel() {
   if (!inicioOculto) {
     desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
   }
-  if (haConexaoAoFimEx) {
+  if (haConexaoAoFimEx && !fimOculto) {
     desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
   }
 
@@ -476,6 +476,7 @@ function gerarFluxoExcel() {
 
     if (destinosSim.length === 0 && destinosNao.length === 0 && destinosExtras.length === 0) {
       if (etapa.semSaida) return; // saída removida de propósito não vai ao Fim
+      if (fimOculto) return;
       desenharConexaoExcel(
         svg,
         posicoes[etapa.id],
@@ -490,7 +491,7 @@ function gerarFluxoExcel() {
   });
 
   // Fim a partir de uma caixa específica que tem saída própria
-  if (fimOrigem && posicoes[fimOrigem]) {
+  if (fimOrigem && posicoes[fimOrigem] && !fimOculto) {
     const lf = etapas.find(e => e.id === fimOrigem);
     const temSaida = lf && (
       quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||

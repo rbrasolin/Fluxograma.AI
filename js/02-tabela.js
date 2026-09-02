@@ -7,6 +7,18 @@ function gerarUID() {
   return "uid_" + uidCounter++;
 }
 
+// Recolhe/expande o corpo da tabela de montagem (só UI, não mexe em fluxoData).
+function alternarTabelaColapsada() {
+  const wrap = document.getElementById("tabelaWrap");
+  const btn = document.getElementById("btnColapsarTabela");
+  if (!wrap) return;
+  const colapsada = wrap.classList.toggle("colapsada");
+  if (btn) {
+    btn.textContent = colapsada ? "▸" : "▾";
+    btn.title = colapsada ? "Expandir tabela" : "Recolher tabela";
+  }
+}
+
 function gerarIdVisual(index) {
   let n = Number(index) + 1;
   let resultado = "";

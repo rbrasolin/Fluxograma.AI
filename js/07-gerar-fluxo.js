@@ -327,10 +327,10 @@ function gerarFluxo() {
   const haConexaoAoFim = algumaVaiAoFim || fimTemOrigemPropria;
 
   if (!inicioOculto) {
-    desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36);
+    marcarTerminalTela(desenharCapsula(svg, "Início", posicoes["__INICIO__"].x, posicoes["__INICIO__"].y, 60, 36), "__INICIO__");
   }
-  if (haConexaoAoFim) {
-    desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36);
+  if (haConexaoAoFim && !fimOculto) {
+    marcarTerminalTela(desenharCapsula(svg, "Fim", posicoes["__FIM__"].x, posicoes["__FIM__"].y, 60, 36), "__FIM__");
   }
 
   etapas.forEach((etapa) => {
@@ -435,6 +435,7 @@ function gerarFluxo() {
       // sem seta. A regra do Fim automático vale só para caixas que nunca
       // tiveram saída definida (ex.: última caixa do fluxo).
       if (etapa.semSaida) return;
+      if (fimOculto) return;
 
       desenharConexao(
         svg,
@@ -451,7 +452,7 @@ function gerarFluxo() {
 
   // Se o usuário definiu de onde o Fim vem e essa caixa tem saída própria,
   // liga essa caixa ao Fim explicitamente (o laço acima só cobre caixas sem saída).
-  if (fimOrigem && posicoes[fimOrigem]) {
+  if (fimOrigem && posicoes[fimOrigem] && !fimOculto) {
     const lf = etapas.find(e => e.id === fimOrigem);
     const temSaida = lf && (
       quebrarListaIds(lf.proxSim).filter(d => destinoEhValido(d, idsValidos)).length ||
@@ -511,8 +512,8 @@ function gerarFluxo() {
         gridRowGlobal: alvoPos.gridRowGlobal, area: alvoPos.area
       };
 
-      desenharCapsula(svg, ehInicio ? "Início" : "Fim",
-        posicoes[termId].x, posicoes[termId].y, 60, 36);
+      marcarTerminalTela(desenharCapsula(svg, ehInicio ? "Início" : "Fim",
+        posicoes[termId].x, posicoes[termId].y, 60, 36), termId);
 
       if (ehInicio) {
         desenharConexao(svg, posicoes[termId], alvoPos, rotuloConexaoFinal(termId, t.alvo, ""), 0, posicoes, sharedRegistry, routeRegistry);

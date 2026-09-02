@@ -179,7 +179,7 @@ function excelAOAparaBase(aoa) {
   return { topo, linhas };
 }
 
-function excelAplicarBase(base) {
+function excelAplicarBase(base, mensagemSucesso) {
   const topo = base.topo || {};
   const linhas = base.linhas || [];
   if (!linhas.length) {
@@ -217,7 +217,7 @@ function excelAplicarBase(base) {
   reaplicarSugestoesConexao(true); // Sim = próxima atividade
   atualizarTabela();
   salvarEstadoLocal(true);
-  mostrarToast("Base importada do Excel. Clique em GERAR FLUXO para visualizar.", "ok");
+  mostrarToast(mensagemSucesso || "Base importada do Excel. Clique em GERAR FLUXO para visualizar.", "ok");
 }
 
 function importarExcelNativo(event) {
