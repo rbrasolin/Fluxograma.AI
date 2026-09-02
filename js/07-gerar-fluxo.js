@@ -60,13 +60,6 @@ function gerarFluxo() {
     mostrarToast(`Fluxo gerado, mas com ${_resultadoValidacao.erros.length} erro(s) — veja o painel acima.`, "erro");
   }
 
-  const desenho = obterValorCampo("desenho");
-  const processo = obterValorCampo("processo");
-  const analista = obterValorCampo("analista");
-  const negocio = obterValorCampo("negocio");
-  const area = obterValorCampo("area");
-  const gestor = obterValorCampo("gestor");
-
   const idsValidos = new Set(etapas.map(e => e.id));
 
   etapas.sort((a, b) => a.ordem - b.ordem);
@@ -569,24 +562,6 @@ function gerarFluxo() {
   const taxaDecisaoNum = etapas.length
     ? (decisoes / etapas.length) * 100
     : 0;
-
-  const fteData = calcularFTE(tempoTotal, etapas);
-  const infoProcessoData = {
-    desenho,
-    processo,
-    analista,
-    negocio,
-    area,
-    gestor,
-    valorFTE: fteData.valorFTE,
-    volumetria: fteData.volumetria,
-    tempoTotal,
-    fteTotal: fteData.fteTotal,
-    ftePorArea: fteData.ftePorArea
-  };
-
-  document.getElementById("infoProcesso").innerHTML =
-    renderInformacoesProcessoExecutivas(infoProcessoData);
 
   const dadosAnalise = {
     tempoTotal,

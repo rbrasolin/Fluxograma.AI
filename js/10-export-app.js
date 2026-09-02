@@ -3,8 +3,53 @@
    Exports (SVG/PNG/JSON), toasts/overlay, init da app e listeners globais
    (linhas 6319-6663 do script.js original - corte contiguo, sem alteracao de codigo)
    ========================================================= */
+/* Insere o cabeçalho do processo (Desenho/Processo/Analista/...) no topo do
+   SVG exportado por "Baixar Fluxo"/"Baixar PNG" — só campos preenchidos
+   aparecem (obterLinhasCabecalhoProcesso, 06-analise.js), mesma regra usada
+   no cabeçalho do PDF. Trabalha em cima do clone que obterSVGPronto()
+   devolve (08-excel.js) — NÃO toca nela nem em gerarFluxoExcel, então não
+   tem risco nenhum pro golden do Excel. Sem campo preenchido, devolve o SVG
+   como veio (sem cabeçalho, sem espaço extra). */
+function montarSVGComCabecalho(svg) {
+  if (!svg) return svg;
+  const linhas = (typeof obterLinhasCabecalhoProcesso === "function") ? obterLinhasCabecalhoProcesso() : [];
+  if (!linhas.length) return svg;
+
+  const NS = "http://www.w3.org/2000/svg";
+  const larguraOriginal = Number(svg.getAttribute("width")) || 1200;
+  const alturaOriginal = Number(svg.getAttribute("height")) || 800;
+
+  const tamanhoFonte = 13;
+  const alturaLinha = 18;
+  const paddingTopo = 14;
+  const paddingBaixo = 10;
+  const alturaCabecalho = paddingTopo + linhas.length * alturaLinha + paddingBaixo;
+
+  // Move todo o conteúdo existente pra baixo, abrindo espaço pro cabeçalho.
+  const grupoOriginal = document.createElementNS(NS, "g");
+  grupoOriginal.setAttribute("transform", `translate(0, ${alturaCabecalho})`);
+  while (svg.firstChild) grupoOriginal.appendChild(svg.firstChild);
+  svg.appendChild(grupoOriginal);
+
+  linhas.forEach((linha, i) => {
+    const texto = document.createElementNS(NS, "text");
+    texto.setAttribute("x", "12");
+    texto.setAttribute("y", String(paddingTopo + (i + 1) * alturaLinha - 4));
+    texto.setAttribute("font-family", CONFIG.fontFamily);
+    texto.setAttribute("font-size", String(tamanhoFonte));
+    texto.setAttribute("fill", "#111111");
+    texto.textContent = linha;
+    svg.insertBefore(texto, grupoOriginal);
+  });
+
+  svg.setAttribute("height", String(alturaOriginal + alturaCabecalho));
+  svg.setAttribute("viewBox", `0 0 ${larguraOriginal} ${alturaOriginal + alturaCabecalho}`);
+
+  return svg;
+}
+
 function baixarSVG() {
-  const svg = obterSVGPronto();
+  const svg = montarSVGComCabecalho(obterSVGPronto());
   if (!svg) return;
 
   const serializer = new XMLSerializer();
@@ -201,7 +246,7 @@ function ehDecisao(etapa) {
 
 /* ---------- Exportar PNG (mantém SVG e PDF intactos) ---------- */
 function baixarPNG() {
-  const svg = obterSVGPronto();
+  const svg = montarSVGComCabecalho(obterSVGPronto());
   if (!svg) {
     mostrarToast("Gere o fluxo primeiro.", "alerta");
     return;

@@ -87,44 +87,54 @@ function coletarDadosAnaliseEstruturados(filtroArea = "") {
     ? (decisoes / etapas.length) * 100
     : 0;
 
-  const top3Gargalos = [...etapas]
+  // Cumulativo (%) de uma lista já ordenada por tempo decrescente — mesma
+  // conta do bloco "Pareto de Tempo" original, reaproveitada aqui pra dar a
+  // Top 3 Gargalos/Tempo por Tipo/Tempo por Sistema a mesma coluna "Pareto".
+  // Recomeçar o acumulado em 0 pra cada lista é intencional: pra Top 3
+  // Gargalos (mesmo recorte de "pareto", só limitado a 3 linhas) dá o mesmo
+  // valor que as 3 primeiras linhas do Pareto completo; Tipo/Sistema são
+  // dimensões próprias, com cumulativo próprio.
+  const acumularPareto = (lista) => {
+    let acumulado = 0;
+    lista.forEach((item) => {
+      acumulado += item.percentual;
+      item.pareto = acumulado;
+    });
+    return lista;
+  };
+
+  const top3Gargalos = acumularPareto([...etapas]
     .sort((a, b) => b.tempo - a.tempo)
     .slice(0, 3)
     .map((e) => ({
       atividade: e.atividade,
       tempo: e.tempo,
       percentual: tempoTotal ? (e.tempo / tempoTotal) * 100 : 0
-    }));
+    })));
 
-  const tempoPorTipo = Object.entries(tiposTempo)
+  const tempoPorTipo = acumularPareto(Object.entries(tiposTempo)
     .map(([tipo, tempo]) => ({
       tipo,
       tempo,
       percentual: tempoTotal ? (tempo / tempoTotal) * 100 : 0
     }))
-    .sort((a, b) => b.tempo - a.tempo);
+    .sort((a, b) => b.tempo - a.tempo));
 
-  const tempoPorSistema = Object.entries(sistemasTempo)
+  const tempoPorSistema = acumularPareto(Object.entries(sistemasTempo)
     .map(([sistema, tempo]) => ({
       sistema,
       tempo,
       percentual: tempoTotal ? (tempo / tempoTotal) * 100 : 0
     }))
-    .sort((a, b) => b.tempo - a.tempo);
+    .sort((a, b) => b.tempo - a.tempo));
 
-  const pareto = [...etapas]
+  const pareto = acumularPareto([...etapas]
     .sort((a, b) => b.tempo - a.tempo)
     .map((e) => ({
       atividade: e.atividade,
-      tempo: e.tempo
-    }));
-
-  let acumulado = 0;
-  pareto.forEach((item) => {
-    item.percentual = tempoTotal ? (item.tempo / tempoTotal) * 100 : 0;
-    acumulado += item.percentual;
-    item.pareto = acumulado;
-  });
+      tempo: e.tempo,
+      percentual: tempoTotal ? (e.tempo / tempoTotal) * 100 : 0
+    })));
 
   // Tudo acima (tempoTotal, top3Gargalos, tempoPorTipo, tempoPorSistema,
   // pareto) é tempo de UMA execução — igual ao cálculo de FTE já fazia
@@ -153,25 +163,6 @@ function coletarDadosAnaliseEstruturados(filtroArea = "") {
     pareto: pareto.map(item => ({ ...item, tempo: escalar(item.tempo) })),
     volumetriaAplicada: volumetriaNum > 0
   };
-}
-
-function extrairLinhasInfoProcesso() {
-  const el = document.getElementById("infoProcesso");
-  if (!el) return [];
-
-  const labels = el.querySelectorAll(".exec-info-item");
-  if (labels.length) {
-    return Array.from(labels).map(item => {
-      const label = item.querySelector(".exec-info-label")?.innerText?.trim() || "";
-      const value = item.querySelector(".exec-info-value")?.innerText?.trim() || "";
-      return `${label}: ${value}`;
-    });
-  }
-
-  return el.innerText
-    .split("\n")
-    .map(l => l.trim())
-    .filter(Boolean);
 }
 
 function adicionarTextoQuebrado(doc, texto, x, y, maxWidth, lineHeight = 14, options = {}) {
@@ -369,7 +360,7 @@ async function _baixarAnalisePDFInterno() {
   const svg = obterSVGPronto();
   if (!svg) { mostrarToast("Gere o fluxo primeiro.", "alerta"); return; }
 
-  const infoLinhas = extrairLinhasInfoProcesso();
+  const infoLinhas = obterLinhasCabecalhoProcesso();
   const dados = coletarDadosAnaliseEstruturados(filtroAnaliseArea);
 
   const { jsPDF } = window.jspdf;

@@ -44,6 +44,7 @@ function alternarModoEdicao() {
     if (btn) { btn.classList.remove("ativo"); btn.textContent = "Editar Fluxo"; }
     removerCamadaEdicao();
     fecharPopoverConexao();
+    fecharMoverGrupo();
     mostrarToast("Ajustes concluídos.", "ok");
   }
 }
@@ -92,23 +93,44 @@ function aplicarCamadaEdicao() {
     g.appendChild(hit);
   });
 
-  // Caixas clicáveis para "mover caixa" (Onda 3 / 3b)
+  // Caixas clicáveis para "mover caixa" (Onda 3 / 3b) — ou, no modo "Mover em
+  // grupo" (ver mais abaixo), pra alternar a seleção da caixa em vez de abrir
+  // o popover individual.
   if (ultimasPosicoesNos) {
     const mapaMov = mapaIdVisualUid();
     mapaMov.validas.forEach((l) => {
       const idVis = mapaMov.uidParaVisual[l.uid];
       const pos = ultimasPosicoesNos[idVis];
       if (!pos) return;
+
+      if (modoSelecaoGrupo && selecaoGrupoUids.has(l.uid)) {
+        const destaque = criarElementoSVG("rect");
+        destaque.setAttribute("x", pos.x - 3);
+        destaque.setAttribute("y", pos.y - 3);
+        destaque.setAttribute("width", pos.w + 6);
+        destaque.setAttribute("height", pos.h + 6);
+        destaque.setAttribute("fill", "none");
+        destaque.setAttribute("stroke", "#1d6fe0");
+        destaque.setAttribute("stroke-width", "3");
+        destaque.setAttribute("rx", "6");
+        destaque.setAttribute("style", "pointer-events:none");
+        g.appendChild(destaque);
+      }
+
       const hitNo = criarElementoSVG("rect");
       hitNo.setAttribute("x", pos.x);
       hitNo.setAttribute("y", pos.y);
       hitNo.setAttribute("width", pos.w);
       hitNo.setAttribute("height", pos.h);
       hitNo.setAttribute("fill", "rgba(0,0,0,0.001)");
-      hitNo.setAttribute("style", "cursor:move");
+      hitNo.setAttribute("style", `cursor:${modoSelecaoGrupo ? "pointer" : "move"}`);
       hitNo.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        abrirMoverCaixa(l.uid, ev);
+        if (modoSelecaoGrupo) {
+          alternarSelecaoGrupo(l.uid);
+        } else {
+          abrirMoverCaixa(l.uid, ev);
+        }
       });
       g.appendChild(hitNo);
     });
@@ -302,10 +324,10 @@ function renderPainelRaias() {
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('inicio', event)">+ Início</button>
       <button type="button" class="btn-nova-seta" onclick="abrirCriadorTerminal('fim', event)">+ Fim</button>
       <button type="button" class="btn-nova-seta" onclick="abrirComecarDoZero(event)">+ Raia</button>
+      <button type="button" class="btn-nova-seta" onclick="ativarMoverGrupo(event)">Mover em grupo</button>
       <button type="button" id="btnDesfazer" class="raias-reset" onclick="desfazer()" title="Desfazer (Ctrl+Z fora dos campos)" disabled>↶ Desfazer</button>
       <button type="button" id="btnRefazer" class="raias-reset" onclick="refazer()" title="Refazer (Ctrl+Y fora dos campos)" disabled>↷ Refazer</button>
-      <button type="button" class="raias-reset" onclick="resetarAjustesFluxo()">Resetar ajustes</button>
-      <span>Clique numa raia para reordená-la, num Início/Fim para reposicioná-lo, numa caixa para editá-la ou criar uma seta a partir dela, ou numa seta (inclusive de Início/Fim) para mudar lados, inserir uma caixa, trocar destino ou apagar.</span>
+      <span>Clique numa raia para reordená-la ou renomeá-la, num Início/Fim para reposicioná-lo, numa caixa para editá-la ou criar uma caixa/seta a partir dela, ou numa seta (inclusive de Início/Fim) para mudar lados, inserir uma caixa, trocar destino ou apagar.</span>
     </div>
   `;
 
@@ -591,37 +613,107 @@ function fecharMoverTerminal() {
   esconderBackdropEditor();
 }
 
-function resetarAjustesFluxo() {
-  const temAjustes =
-    (overridesConexoes && Object.keys(overridesConexoes).length) ||
-    (ordemRaias && ordemRaias.length) ||
-    (rotulosConexoes && Object.keys(rotulosConexoes).length) ||
-    (terminais && terminais.length) ||
-    inicioAlvo || fimOrigem || inicioOculto ||
-    (Array.isArray(fluxoData) && fluxoData.some(l => l && l.semSaida));
+/* =====================================================================
+   "Mover em grupo" — seleciona várias caixas no diagrama de uma vez e move
+   todas juntas com um único d-pad, em vez de abrir "Mover caixa" e navegar
+   uma por uma (útil pra fechar um "buraco" no layout depois de mover só uma
+   caixa no meio de uma cadeia longa). Só afeta atividades/decisões reais
+   (fluxoData) — Início/Fim não têm coluna/linha própria: a posição deles já é
+   derivada da caixa-alvo (inicioAlvo/fimOrigem/terminais[].alvo), então
+   seguem sozinhos quando essa caixa se move, sem precisar ser selecionados.
+   Enquanto o modo está ativo, aplicarCamadaEdicao() (acima) troca o clique
+   nas caixas de "abrir Mover caixa" pra "alternar seleção" + desenha um
+   contorno azul nas selecionadas.
+===================================================================== */
+let modoSelecaoGrupo = false;
+let selecaoGrupoUids = new Set();
 
-  if (!temAjustes) {
-    mostrarToast("Não há ajustes manuais para resetar.", "info");
+function ativarMoverGrupo(ev) {
+  fecharTodosOsPopovers();
+  if (!modoEdicaoAtivo) {
+    mostrarToast('Ative "Editar Fluxo" primeiro.', "alerta");
     return;
   }
+  modoSelecaoGrupo = true;
+  selecaoGrupoUids = new Set();
+  mostrarBackdropEditor();
+  renderMoverGrupo(ev);
+  aplicarCamadaEdicao();
+}
 
-  if (!confirm("Remover todos os ajustes manuais de setas e ordem de raias?")) return;
+function alternarSelecaoGrupo(uid) {
+  if (selecaoGrupoUids.has(uid)) selecaoGrupoUids.delete(uid);
+  else selecaoGrupoUids.add(uid);
+  aplicarCamadaEdicao();
+  atualizarContadorMoverGrupo();
+}
 
-  overridesConexoes = {};
-  ordemRaias = [];
-  rotulosConexoes = {};
-  terminais = [];
-  inicioAlvo = "";
-  fimOrigem = "";
-  inicioOculto = false;
-  fimOculto = false;
-  conexaoSelecionada = null;
-  // limpa marcações de "sem saída" feitas manualmente
-  fluxoData.forEach(l => { if (l) l.semSaida = false; });
+function atualizarContadorMoverGrupo() {
+  const el = document.getElementById("moverGrupoContador");
+  if (!el) return;
+  el.textContent = selecaoGrupoUids.size
+    ? `${selecaoGrupoUids.size} caixa(s) selecionada(s)`
+    : "Nenhuma caixa selecionada ainda.";
+}
+
+function renderMoverGrupo(ev) {
+  let box = document.getElementById("moverGrupo");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "moverGrupo";
+    document.body.appendChild(box);
+  }
+  box.innerHTML = `
+    <div class="pop-header">
+      <span><b>Mover em grupo</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharMoverGrupo()">✕</button>
+    </div>
+    <div class="mover-grupo-dica">Clique nas caixas do diagrama que quer mover junto — quantas quiser, atividades ou decisões.</div>
+    <div class="mover-grupo-contador" id="moverGrupoContador"></div>
+    <div class="mover-dpad">
+      <button type="button" class="dpad-btn dpad-up" title="Mover pra cima" onclick="nudgeGrupo(0,-1)">▲</button>
+      <button type="button" class="dpad-btn dpad-left" title="Mover pra esquerda" onclick="nudgeGrupo(-1,0)">◀</button>
+      <div class="dpad-center">↕</div>
+      <button type="button" class="dpad-btn dpad-right" title="Mover pra direita" onclick="nudgeGrupo(1,0)">▶</button>
+      <button type="button" class="dpad-btn dpad-down" title="Mover pra baixo" onclick="nudgeGrupo(0,1)">▼</button>
+    </div>
+    <div class="mover-dica">▲▼ muda a linha · ◀▶ muda a coluna — move todas as selecionadas juntas</div>
+  `;
+  posicionarFlutuante(box, ev);
+  atualizarContadorMoverGrupo();
+}
+
+function nudgeGrupo(dCol, dLin) {
+  if (!selecaoGrupoUids.size) {
+    mostrarToast("Selecione ao menos uma caixa no diagrama primeiro.", "alerta");
+    return;
+  }
+  selecaoGrupoUids.forEach((uid) => {
+    const linha = fluxoData.find((l) => l.uid === uid);
+    if (!linha) return;
+    linha.coluna = Math.max(1, (Number(linha.coluna) || 1) + dCol);
+    linha.colunaManual = true;
+    linha.linha = Math.max(1, (Number(linha.linha) || 1) + dLin);
+    linha.linhaManual = true;
+  });
+  // Mesma lição do bug de sobreposição ao trocar raia (aplicarMoverArea):
+  // reaplicarSugestoesPosicao resolve colisão de posição, inclusive pra
+  // linhas manuais — sem isso, duas caixas do grupo podiam empurrar pra cima
+  // de uma terceira que não fazia parte da seleção.
+  reaplicarSugestoesPosicao();
   salvarEstadoLocal(true);
+  atualizarTabela();
   gerarFluxo();
-  fecharPopoverConexao();
-  mostrarToast("Ajustes manuais removidos. Fluxo voltou ao automático.", "ok");
+}
+
+function fecharMoverGrupo() {
+  const box = document.getElementById("moverGrupo");
+  if (box) box.style.display = "none";
+  esconderBackdropEditor();
+  const tinhaSelecao = modoSelecaoGrupo;
+  modoSelecaoGrupo = false;
+  selecaoGrupoUids = new Set();
+  if (tinhaSelecao) aplicarCamadaEdicao(); // remove os contornos de seleção
 }
 
 /* Fecha TODOS os popovers do editor de uma vez — usada tanto pelo listener de
@@ -640,6 +732,8 @@ function fecharTodosOsPopovers() {
   fecharCriadorCaixa();
   fecharCriadorTerminal();
   fecharComecarDoZero();
+  fecharMoverGrupo();
+  if (typeof fecharModalSemTempo === "function") fecharModalSemTempo();
 }
 
 /* Fecha os popovers do editor ao clicar fora deles. Não fecha se o clique foi:
@@ -651,7 +745,7 @@ document.addEventListener("click", (event) => {
   if (!event.target || !event.target.closest) return;
   if (event.target.closest(
     "#popoverConexao, #moverCaixa, #moverRaia, #moverTerminal, " +
-    "#criadorConexao, #criadorCaixa, #criadorTerminal, #comecarDoZero"
+    "#criadorConexao, #criadorCaixa, #criadorTerminal, #comecarDoZero, #moverGrupo, #modalSemTempo"
   )) return;
   if (event.target.closest("g.editor-ui")) return; // caixas e setas (área de clique do SVG)
   if (event.target.closest("[data-raia]")) return;   // cabeçalho de raia
@@ -1055,7 +1149,9 @@ function abrirCriadorConexao(uidOrigem, ev, destinoInicial) {
     </div>
     <div class="pop-grupo" id="novaConexaoCamposCaixa">
       <div class="pop-label">Texto da nova atividade</div>
-      <input type="text" id="novaConexaoCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
+      <input type="text" id="novaConexaoCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório"
+        oninput="atualizarHintDecisao('novaConexaoHintDecisao', this)" />
+      <div class="pop-hint-decisao" id="novaConexaoHintDecisao" style="display:none"></div>
     </div>
     <div class="pop-grupo">
       <div class="pop-label">Tipo</div>
@@ -1532,6 +1628,25 @@ function inserirNovaCaixa(opts) {
   mostrarToast(`Caixa "${atividade}" inserida na coluna ${col}.`, "ok");
 }
 
+/* Aviso dinâmico (só leitura) nos popovers de criar/editar caixa: mostra se o
+   texto digitado agora vai virar uma caixa de Decisão (losango). Reaproveita a
+   MESMA regra que decide isso de verdade — ehDecisao (10-export-app.js): texto
+   termina em "?" (isPergunta) OU campo Tipo contém "decisão"/"decisao". Zero
+   campo novo, zero mudança de estado/comportamento — só torna visível uma
+   regra que já existia, mas não aparecia em lugar nenhum da UI. */
+function atualizarHintDecisao(hintId, textoEl, tipoEl) {
+  const hint = document.getElementById(hintId);
+  if (!hint) return;
+  const texto = (textoEl && textoEl.value) || "";
+  const tipo = (tipoEl && tipoEl.value) || "";
+  const decisao = ehDecisao({ atividade: texto, tipo });
+  hint.style.display = decisao ? "" : "none";
+  if (decisao) {
+    const motivo = isPergunta(texto) ? "o texto termina em “?”" : "o Tipo está como “Decisão”";
+    hint.textContent = `🔷 Vira uma caixa de Decisão (losango) — ${motivo}.`;
+  }
+}
+
 /* ---------- Nova raia (com a 1ª caixa dela) ----------
    Duas portas de entrada pro mesmo popover: o bloco "Desenhe do zero" (fora
    do modo de edição, só aparece com o fluxo vazio — cria a 1ª raia de todas)
@@ -1565,7 +1680,9 @@ function abrirComecarDoZero(ev) {
     </div>
     <div class="pop-grupo">
       <div class="pop-label">Texto da primeira atividade</div>
-      <input type="text" id="zeroCaixaTexto" class="pop-select" placeholder="Ex.: Receber solicitação" />
+      <input type="text" id="zeroCaixaTexto" class="pop-select" placeholder="Ex.: Receber solicitação"
+        oninput="atualizarHintDecisao('zeroCaixaHintDecisao', this)" />
+      <div class="pop-hint-decisao" id="zeroCaixaHintDecisao" style="display:none"></div>
     </div>
     <div class="pop-rodape pop-rodape-acoes">
       <button type="button" class="pop-criar" onclick="confirmarComecarDoZero()">Criar raia</button>
@@ -1624,7 +1741,9 @@ function abrirCriadorCaixa(ev, contextoConexao) {
     ${tituloContexto}
     <div class="pop-grupo">
       <div class="pop-label">Texto da atividade</div>
-      <input type="text" id="novaCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório" />
+      <input type="text" id="novaCaixaTexto" class="pop-select" placeholder="Ex.: Validar relatório"
+        oninput="atualizarHintDecisao('novaCaixaHintDecisao', this)" />
+      <div class="pop-hint-decisao" id="novaCaixaHintDecisao" style="display:none"></div>
     </div>
     <div class="pop-rodape pop-rodape-acoes">
       <button type="button" class="pop-criar" onclick="confirmarCriarCaixa()">Inserir caixa</button>
@@ -1708,6 +1827,7 @@ function abrirMoverCaixa(uid, ev) {
     <div class="pop-grupo">
       <div class="pop-label">Texto da caixa</div>
       <textarea class="pop-textarea" id="editarAtividadeCaixa" rows="2"
+        oninput="atualizarHintDecisao('editarCaixaHintDecisao', this, document.getElementById('editarTipoCaixa'))"
         onblur="aplicarEditarAtividadeCaixa('${uid}')"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault(); this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}"
       >${escaparHTML(limpar(linha.atividade || ""))}</textarea>
@@ -1747,8 +1867,10 @@ function abrirMoverCaixa(uid, ev) {
       <input type="text" class="pop-input" id="editarTipoCaixa" list="sugestoes-tipo"
         value="${escaparHTML(limpar(linha.tipo || ""))}"
         placeholder="Ex.: Manual, Autom\u00e1tica..."
+        oninput="atualizarHintDecisao('editarCaixaHintDecisao', document.getElementById('editarAtividadeCaixa'), this)"
         onblur="aplicarEditarCampoCaixa('${uid}','tipo')"
         onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.value=this.defaultValue; this.blur();}" />
+      <div class="pop-hint-decisao" id="editarCaixaHintDecisao" style="display:none"></div>
     </div>
     <div class="mover-dpad">
       <button type="button" class="dpad-btn dpad-up" title="Subir linha" onclick="nudgeMoverCaixa('${uid}',0,-1)">\u25b2</button>
@@ -1767,6 +1889,10 @@ function abrirMoverCaixa(uid, ev) {
     <button type="button" class="raia-mv-btn terminal-excluir" onclick="excluirCaixaEditor('${uid}')">\u2715 Excluir caixa</button>
   `;
   posicionarFlutuante(box, ev);
+  // Estado inicial do aviso: se a caixa j\u00e1 \u00e9 uma Decis\u00e3o (texto com "?" ou
+  // Tipo j\u00e1 preenchido com "decis\u00e3o"), mostra isso j\u00e1 na abertura, n\u00e3o s\u00f3
+  // depois de digitar algo.
+  atualizarHintDecisao("editarCaixaHintDecisao", document.getElementById("editarAtividadeCaixa"), document.getElementById("editarTipoCaixa"));
 }
 
 // Exclui a caixa pelo popover "Mover caixa", reusando excluirLinha (mesma fun\u00e7\u00e3o do
@@ -1791,6 +1917,14 @@ function aplicarMoverArea(uid) {
   linha.area = sel.value;
   linha.colunaManual = true;
   linha.linhaManual = true;
+  // A caixa carrega a coluna/linha da raia de ORIGEM, que pode já estar
+  // ocupada por outra caixa na raia de DESTINO (bug real: sobreposição ao
+  // trocar de raia). reaplicarSugestoesPosicao já resolve isso — inclusive
+  // pra linhas manuais, ela mantém a posição preferida e só empurra pra
+  // próxima coluna livre em caso de colisão. Mesma função que o undo/redo
+  // já aciona de carona (via restaurarEstadoLocal), o que mascarava esse
+  // bug: desfazer+refazer "consertava" a posição sem essa chamada aqui.
+  reaplicarSugestoesPosicao();
   salvarEstadoLocal(true);
   atualizarTabela();
   gerarFluxo();

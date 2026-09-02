@@ -3,6 +3,38 @@
    Análise do processo: resumo de tempo, Pareto, FTE, render executivo
    (linhas 4217-4544 do script.js original - corte contiguo, sem alteracao de codigo)
    ========================================================= */
+/* Estado de blocos recolhidos no painel "Análise do Processo" — só UI, não
+   entra no JSON do projeto nem persiste entre reloads (mesma filosofia do
+   "recolher tabela" em 02-tabela.js). Precisa ficar num objeto à parte (e
+   não só numa classe CSS) porque, diferente da tabela, #metricas é
+   recriado do zero (innerHTML) a cada gerarFluxo()/renderAnaliseComFiltro()
+   — uma classe CSS sozinha se perderia a cada edição. A chave é o id fixo
+   do bloco (estável entre renders, mesmo o conteúdo mudando). */
+let blocosAnaliseColapsados = {};
+
+function blocoColapsado(chave) {
+  return !!blocosAnaliseColapsados[chave];
+}
+
+// Título clicável de um bloco (exec-card ou exec-table-block), com seta de
+// recolher/expandir. classeTitulo = "exec-card-title" | "exec-table-title".
+function tituloBlocoColapsavel(chave, titulo, classeTitulo) {
+  const colapsado = blocoColapsado(chave);
+  return `<div class="${classeTitulo}" data-bloco-titulo="${chave}" onclick="alternarBlocoAnalise('${chave}')">
+      <span class="bloco-seta">${colapsado ? "▸" : "▾"}</span>
+      <span>${escaparHTML(titulo)}</span>
+    </div>`;
+}
+
+function alternarBlocoAnalise(chave) {
+  blocosAnaliseColapsados[chave] = !blocosAnaliseColapsados[chave];
+  const colapsado = blocosAnaliseColapsados[chave];
+  const bloco = document.querySelector(`[data-bloco="${chave}"]`);
+  if (bloco) bloco.classList.toggle("colapsado", colapsado);
+  const seta = document.querySelector(`[data-bloco-titulo="${chave}"] .bloco-seta`);
+  if (seta) seta.textContent = colapsado ? "▸" : "▾";
+}
+
 function gerarHTMLResumoTempo(lista, tempoTotal) {
   return lista
     .map(item => {
@@ -85,6 +117,103 @@ function calcularFTE(tempoTotalSegundos, etapas) {
   return { valorFTE, volumetria, fteTotal, ftePorArea, valido };
 }
 
+/* Monta as linhas do cabeçalho do processo (Desenho/Processo/Analista/...)
+   pra uso nos exports (SVG, PNG, PDF) — regra: campo vazio não entra na
+   linha nenhuma, pra não poluir o arquivo exportado. Lê os campos crus do
+   topo + recalcula tempo/FTE do jeito que a tela já faz — não depende de
+   gerarFluxo() ter rodado, dá pra chamar a qualquer momento. */
+function obterLinhasCabecalhoProcesso() {
+  const linhas = [];
+  const add = (rotulo, valor) => {
+    const v = (valor == null) ? "" : String(valor).trim();
+    if (v) linhas.push(`${rotulo}: ${v}`);
+  };
+
+  add("Desenho", obterValorCampo("desenho"));
+  add("Processo", obterValorCampo("processo"));
+  add("Analista", obterValorCampo("analista"));
+  add("Negócio", obterValorCampo("negocio"));
+  add("Área", obterValorCampo("area"));
+  add("Gestor", obterValorCampo("gestor"));
+  add("Valor FTE (h/mês)", obterValorCampo("valorFTE"));
+  add("Volumetria (exec./mês)", obterValorCampo("volumetria"));
+
+  if (Array.isArray(fluxoData) && fluxoData.length) {
+    const etapas = obterEtapasDaTabela();
+    if (etapas.length) {
+      const dados = coletarDadosAnaliseEstruturados();
+      if (dados) {
+        add("Tempo por execução", formatarTempo(dados.tempoTotalPorExecucao));
+        const fte = calcularFTE(dados.tempoTotalPorExecucao, etapas);
+        if (fte.fteTotal != null) add("FTE total", formatarFTE(fte.fteTotal));
+      }
+    }
+  }
+
+  return linhas;
+}
+
+/* Aviso "X sem tempo" nos totalizadores (FTE total, Tempo total do processo,
+   Potencial retrabalho) — detecta atividades com o campo Tempo em branco
+   (não "0" digitado por engano, e sim ausente de verdade) pra sinalizar que
+   esses totais podem estar sub-contados por uma caixa que passou batido sem
+   tempo preenchido. Clicável: abre a lista de quais atividades estão sem
+   tempo, pra ir direto corrigir. Puramente informativo — não bloqueia nada,
+   não altera fluxoData nem os cálculos em si. */
+function etapasSemTempo(filtroArea) {
+  let etapas = obterEtapasDaTabela();
+  if (filtroArea) {
+    etapas = etapas.filter(e => (limpar(e.area || "") || "Sem Área") === filtroArea);
+  }
+  return etapas.filter(e => !e.tempoTexto || !String(e.tempoTexto).trim());
+}
+
+function avisoSemTempoHTML(filtroArea) {
+  const lista = etapasSemTempo(filtroArea);
+  if (!lista.length) return "";
+  const filtroAttr = escaparHTML(filtroArea || "");
+  return ` <span class="aviso-sem-tempo" title="${lista.length} atividade(s) sem tempo informado — clique para ver quais" onclick="event.stopPropagation(); mostrarEtapasSemTempo('${filtroAttr}', event)">⚠ ${lista.length} sem tempo</span>`;
+}
+
+function mostrarEtapasSemTempo(filtroArea, ev) {
+  fecharTodosOsPopovers();
+  const lista = etapasSemTempo(filtroArea);
+
+  let modal = document.getElementById("modalSemTempo");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modalSemTempo";
+    document.body.appendChild(modal);
+  }
+
+  const itens = lista.map(e => {
+    const areaTxt = (e.area && e.area !== "Sem Área") ? ` <span class="sem-tempo-area">— ${escaparHTML(e.area)}</span>` : "";
+    return `<li>${escaparHTML(e.id)} · ${escaparHTML(e.atividade)}${areaTxt}</li>`;
+  }).join("");
+
+  modal.innerHTML = `
+    <div class="pop-header">
+      <span><b>Atividades sem tempo informado</b></span>
+      <button type="button" class="pop-fechar" onclick="fecharModalSemTempo()">✕</button>
+    </div>
+    <div class="sem-tempo-dica">Essas atividades não têm o campo Tempo preenchido — os totais de tempo/FTE/retrabalho não contam com elas.</div>
+    <ul class="sem-tempo-lista">${itens || "<li>Nenhuma.</li>"}</ul>
+  `;
+
+  if (typeof mostrarBackdropEditor === "function") mostrarBackdropEditor();
+  if (typeof posicionarFlutuante === "function") {
+    posicionarFlutuante(modal, ev);
+  } else {
+    modal.style.display = "block";
+  }
+}
+
+function fecharModalSemTempo() {
+  const modal = document.getElementById("modalSemTempo");
+  if (modal) modal.style.display = "none";
+  if (typeof esconderBackdropEditor === "function") esconderBackdropEditor();
+}
+
 function formatarFTE(v) {
   if (v == null) return "Não informado";
   return (Math.round(v * 100) / 100).toLocaleString("pt-BR", {
@@ -93,62 +222,19 @@ function formatarFTE(v) {
   });
 }
 
-function renderInformacoesProcessoExecutivas(info) {
-  return `
-    <div class="exec-card">
-      <div class="exec-card-title">Informações do Processo</div>
-      <div class="exec-info-grid">
-        <div class="exec-info-item">
-          <div class="exec-info-label">Desenho</div>
-          <div class="exec-info-value">${escaparHTML(info.desenho || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Processo</div>
-          <div class="exec-info-value">${escaparHTML(info.processo || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Analista</div>
-          <div class="exec-info-value">${escaparHTML(info.analista || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Negócio</div>
-          <div class="exec-info-value">${escaparHTML(info.negocio || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Área</div>
-          <div class="exec-info-value">${escaparHTML(info.area || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Gestor</div>
-          <div class="exec-info-value">${escaparHTML(info.gestor || "Não informado")}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Valor FTE (h/mês)</div>
-          <div class="exec-info-value">${info.valorFTE ? info.valorFTE : "Não informado"}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Volumetria (exec./mês)</div>
-          <div class="exec-info-value">${info.volumetria ? info.volumetria : "Não informado"}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">Tempo por execução</div>
-          <div class="exec-info-value">${info.tempoTotal != null ? formatarTempo(info.tempoTotal) : "Não informado"}</div>
-        </div>
-        <div class="exec-info-item">
-          <div class="exec-info-label">FTE total</div>
-          <div class="exec-info-value">${formatarFTE(info.fteTotal != null ? info.fteTotal : null)}</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
+// layoutFixo + col.width (ex.: "38%") padronizam a posição das colunas entre
+// tabelas diferentes (ex.: Top 3 Gargalos/Tempo por Tipo/Tempo por Sistema/
+// Pareto têm a 1ª coluna com nome diferente, mas as demais — Tempo/%/Pareto —
+// ficam alinhadas verticalmente entre os blocos, em vez de cada tabela
+// dimensionar as colunas sozinha pelo próprio conteúdo.
+function renderTabelaAnaliseHTML({ chave, titulo, columns, rows, layoutFixo }) {
+  const estiloLargura = (col) => col.width ? ` style="width:${col.width}"` : "";
 
-function renderTabelaAnaliseHTML({ titulo, columns, rows }) {
   const thead = `
     <thead>
       <tr>
         ${columns.map(col => `
-          <th class="${col.align === "center" ? "th-center" : ""}">
+          <th class="${col.align === "center" ? "th-center" : ""}"${estiloLargura(col)}>
             ${escaparHTML(col.header)}
           </th>
         `).join("")}
@@ -161,7 +247,7 @@ function renderTabelaAnaliseHTML({ titulo, columns, rows }) {
       ${rows.map(row => `
         <tr>
           ${columns.map(col => `
-            <td class="${col.align === "center" ? "td-center" : ""}">
+            <td class="${col.align === "center" ? "td-center" : ""}"${estiloLargura(col)}>
               ${escaparHTML(row[col.key] ?? "")}
             </td>
           `).join("")}
@@ -171,10 +257,10 @@ function renderTabelaAnaliseHTML({ titulo, columns, rows }) {
   `;
 
   return `
-    <div class="exec-table-block">
-      <div class="exec-table-title">${escaparHTML(titulo)}</div>
+    <div class="exec-table-block${blocoColapsado(chave) ? " colapsado" : ""}" data-bloco="${chave}">
+      ${tituloBlocoColapsavel(chave, titulo, "exec-table-title")}
       <div class="exec-table-wrap">
-        <table class="exec-table">
+        <table class="exec-table${layoutFixo ? " exec-table-fixa" : ""}">
           ${thead}
           ${tbody}
         </table>
@@ -187,19 +273,19 @@ function renderResumoAnaliseExecutivo(dados) {
   const sufixoMensal = dados.volumetriaAplicada ? " (mensal)" : "";
   return `
     <div class="exec-summary-grid">
-      <div class="exec-summary-item">
+      <div class="exec-summary-item" title="Soma do tempo de todas as etapas${dados.volumetriaAplicada ? ", multiplicado pela volumetria informada" : ""}.">
         <div class="exec-summary-label">Tempo total do processo${sufixoMensal}</div>
-        <div class="exec-summary-value">${formatarTempo(dados.tempoTotal)}</div>
+        <div class="exec-summary-value">${formatarTempo(dados.tempoTotal)}${avisoSemTempoHTML(filtroAnaliseArea)}</div>
       </div>
-      <div class="exec-summary-item">
+      <div class="exec-summary-item" title="Quantas vezes o fluxo retorna para uma etapa anterior (indica repetição/retrabalho no processo).">
         <div class="exec-summary-label">Loops detectados</div>
         <div class="exec-summary-value">${dados.loops}</div>
       </div>
-      <div class="exec-summary-item">
+      <div class="exec-summary-item" title="Tempo (e % do total) das etapas que podem ser refeitas por causa de um loop no processo.">
         <div class="exec-summary-label">Potencial retrabalho${sufixoMensal}</div>
-        <div class="exec-summary-value">${formatarTempo(dados.tempoPotencialRetrabalho)} | ${formatarPercentual(dados.impactoPotencialRetrabalho)}%</div>
+        <div class="exec-summary-value">${formatarTempo(dados.tempoPotencialRetrabalho)} | ${formatarPercentual(dados.impactoPotencialRetrabalho)}%${avisoSemTempoHTML(filtroAnaliseArea)}</div>
       </div>
-      <div class="exec-summary-item">
+      <div class="exec-summary-item" title="Quantas etapas do processo são pontos de decisão, e qual % isso representa do total de etapas.">
         <div class="exec-summary-label">Taxa de decisão</div>
         <div class="exec-summary-value">${dados.decisoes} etapa(s) | ${formatarPercentual(dados.taxaDecisao)}%</div>
       </div>
@@ -217,12 +303,11 @@ function aplicarFiltroAnalise(area) {
 }
 
 function renderFTEResumo(fte, filtroArea) {
-  const escopo = filtroArea ? `Raia: ${escaparHTML(filtroArea)}` : "Processo inteiro";
-  let html = `<div class="exec-card"><div class="exec-card-title">FTE \u2014 ${escopo}</div>`;
+  let html = `<div class="exec-card${blocoColapsado("fte") ? " colapsado" : ""}" data-bloco="fte">${tituloBlocoColapsavel("fte", "FTE", "exec-card-title")}`;
   html += `<div class="exec-summary-grid">
-      <div class="exec-summary-item"><div class="exec-summary-label">FTE ${filtroArea ? "da raia" : "total"}</div><div class="exec-summary-value">${formatarFTE(fte.fteTotal)}</div></div>
-      <div class="exec-summary-item"><div class="exec-summary-label">Volumetria</div><div class="exec-summary-value">${fte.volumetria ? fte.volumetria + " /m\u00eas" : "N\u00e3o informado"}</div></div>
-      <div class="exec-summary-item"><div class="exec-summary-label">Valor FTE</div><div class="exec-summary-value">${fte.valorFTE ? fte.valorFTE + " h/m\u00eas" : "N\u00e3o informado"}</div></div>
+      <div class="exec-summary-item" title="Soma do tempo de todas as atividades multiplicado pela volumetria (execu\u00e7\u00f5es/m\u00eas) \u2014 quantas pessoas em tempo integral esse processo consome."><div class="exec-summary-label">FTE ${filtroArea ? "da raia" : "total"}</div><div class="exec-summary-value">${formatarFTE(fte.fteTotal)}${avisoSemTempoHTML(filtroArea)}</div></div>
+      <div class="exec-summary-item" title="Quantas vezes o processo \u00e9 executado por m\u00eas."><div class="exec-summary-label">Volumetria</div><div class="exec-summary-value">${fte.volumetria ? fte.volumetria + " /m\u00eas" : "N\u00e3o informado"}</div></div>
+      <div class="exec-summary-item" title="Quantidade de horas dispon\u00edveis por um FTE (uma pessoa) por m\u00eas \u2014 base de c\u00e1lculo do FTE do processo."><div class="exec-summary-label">Valor FTE</div><div class="exec-summary-value">${fte.valorFTE ? fte.valorFTE + " h/m\u00eas" : "N\u00e3o informado"}</div></div>
     </div>`;
   if (!filtroArea && fte.ftePorArea && fte.ftePorArea.length > 1) {
     const sufixoMensalFte = fte.volumetria > 0 ? " (mensal)" : "";
@@ -298,10 +383,9 @@ function calcularHandoffs() {
 function renderHandoffs(h, filtroArea) {
   // Sem nenhum handoff no processo inteiro.
   if (!h || h.total === 0) {
-    const escopo = filtroArea ? `Raia: ${escaparHTML(filtroArea)}` : "Processo inteiro";
-    return `<div class="exec-card"><div class="exec-card-title">Handoffs entre \u00e1reas \u2014 ${escopo}</div>
+    return `<div class="exec-card${blocoColapsado("handoffs") ? " colapsado" : ""}" data-bloco="handoffs">${tituloBlocoColapsavel("handoffs", "Handoffs entre \u00e1reas", "exec-card-title")}
       <div class="exec-summary-grid">
-        <div class="exec-summary-item"><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">0</div></div>
+        <div class="exec-summary-item" title="Quantas vezes o processo muda de \u00e1rea (troca de bast\u00e3o entre raias)."><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">0</div></div>
       </div>
       <div class="analytics-item">Nenhuma troca de bast\u00e3o entre \u00e1reas neste fluxo.</div>
     </div>`;
@@ -312,11 +396,11 @@ function renderHandoffs(h, filtroArea) {
     const rows = h.pares.map(p =>
       `<tr><td>${escaparHTML(p.origem)}</td><td>${escaparHTML(p.destino)}</td><td class="td-center">${p.count}</td></tr>`
     ).join("");
-    return `<div class="exec-card"><div class="exec-card-title">Handoffs entre \u00e1reas \u2014 Processo inteiro</div>
+    return `<div class="exec-card${blocoColapsado("handoffs") ? " colapsado" : ""}" data-bloco="handoffs">${tituloBlocoColapsavel("handoffs", "Handoffs entre \u00e1reas", "exec-card-title")}
       <div class="exec-summary-grid">
-        <div class="exec-summary-item"><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">${h.total}</div></div>
-        <div class="exec-summary-item"><div class="exec-summary-label">\u00c1reas envolvidas</div><div class="exec-summary-value">${h.areasEnvolvidas}</div></div>
-        <div class="exec-summary-item"><div class="exec-summary-label">Interfaces entre \u00e1reas</div><div class="exec-summary-value">${h.pares.length}</div></div>
+        <div class="exec-summary-item" title="Quantas vezes o processo muda de \u00e1rea (troca de bast\u00e3o entre raias)."><div class="exec-summary-label">Total de handoffs</div><div class="exec-summary-value">${h.total}</div></div>
+        <div class="exec-summary-item" title="Quantas \u00e1reas (raias) diferentes participam deste processo."><div class="exec-summary-label">\u00c1reas envolvidas</div><div class="exec-summary-value">${h.areasEnvolvidas}</div></div>
+        <div class="exec-summary-item" title="Quantos pares distintos de \u00e1rea de origem \u2192 \u00e1rea de destino existem nas trocas de bast\u00e3o."><div class="exec-summary-label">Interfaces entre \u00e1reas</div><div class="exec-summary-value">${h.pares.length}</div></div>
       </div>
       <div class="exec-table-block"><div class="exec-table-title">Handoffs detalhado (\u00e1rea \u2192 \u00e1rea)</div>
         <div class="exec-table-wrap"><table class="exec-table">
@@ -342,11 +426,11 @@ function renderHandoffs(h, filtroArea) {
   const corpo = rowsSaida.concat(rowsEntrada).join("")
     || '<tr><td colspan="3">Nenhuma troca com outras \u00e1reas.</td></tr>';
 
-  return `<div class="exec-card"><div class="exec-card-title">Handoffs \u2014 Raia: ${escaparHTML(filtroArea)}</div>
+  return `<div class="exec-card${blocoColapsado("handoffs") ? " colapsado" : ""}" data-bloco="handoffs">${tituloBlocoColapsavel("handoffs", "Handoffs entre \u00e1reas", "exec-card-title")}
     <div class="exec-summary-grid">
-      <div class="exec-summary-item"><div class="exec-summary-label">Total da raia</div><div class="exec-summary-value">${totalSaida + totalEntrada}</div></div>
-      <div class="exec-summary-item"><div class="exec-summary-label">Sa\u00eddas (para outras)</div><div class="exec-summary-value">${totalSaida}</div></div>
-      <div class="exec-summary-item"><div class="exec-summary-label">Entradas (de outras)</div><div class="exec-summary-value">${totalEntrada}</div></div>
+      <div class="exec-summary-item" title="Quantas vezes esta \u00e1rea troca o processo com outra \u00e1rea, somando sa\u00eddas e entradas."><div class="exec-summary-label">Total da raia</div><div class="exec-summary-value">${totalSaida + totalEntrada}</div></div>
+      <div class="exec-summary-item" title="Quantas vezes o processo sai desta \u00e1rea direto para outra."><div class="exec-summary-label">Sa\u00eddas (para outras)</div><div class="exec-summary-value">${totalSaida}</div></div>
+      <div class="exec-summary-item" title="Quantas vezes o processo chega nesta \u00e1rea vindo de outra."><div class="exec-summary-label">Entradas (de outras)</div><div class="exec-summary-value">${totalEntrada}</div></div>
     </div>
     <div class="exec-table-block"><div class="exec-table-title">Trocas envolvendo esta raia</div>
       <div class="exec-table-wrap"><table class="exec-table">
@@ -381,7 +465,7 @@ function renderAnaliseComFiltro() {
     areasAtuais.map(a => `<option value="${escaparHTML(a)}" ${a === filtroAnaliseArea ? "selected" : ""}>${escaparHTML(a)}</option>`)
   ).join("");
 
-  const filtroHTML = `<div class="analise-filtro"><label>Raia:</label><select onchange="aplicarFiltroAnalise(this.value)">${opts}</select></div>`;
+  const filtroHTML = `<div class="analise-filtro"><label title="Selecione uma área para focar a análise nela, ou deixe em &quot;Todos&quot; para ver o processo inteiro.">Qual área você quer analisar?</label><select onchange="aplicarFiltroAnalise(this.value)">${opts}</select></div>`;
 
   const handoffs = calcularHandoffs();
 
@@ -398,19 +482,22 @@ function renderizarAnaliseExecutiva(dados) {
   const top3Rows = dados.top3Gargalos.map(item => ({
     atividade: item.atividade,
     tempoFmt: formatarTempo(item.tempo),
-    percentualFmt: `${formatarPercentual(item.percentual)}%`
+    percentualFmt: `${formatarPercentual(item.percentual)}%`,
+    paretoFmt: `${formatarPercentual(item.pareto)}%`
   }));
 
   const tipoRows = dados.tempoPorTipo.map(item => ({
     tipo: item.tipo,
     tempoFmt: formatarTempo(item.tempo),
-    percentualFmt: `${formatarPercentual(item.percentual)}%`
+    percentualFmt: `${formatarPercentual(item.percentual)}%`,
+    paretoFmt: `${formatarPercentual(item.pareto)}%`
   }));
 
   const sistemaRows = dados.tempoPorSistema.map(item => ({
     sistema: item.sistema,
     tempoFmt: formatarTempo(item.tempo),
-    percentualFmt: `${formatarPercentual(item.percentual)}%`
+    percentualFmt: `${formatarPercentual(item.percentual)}%`,
+    paretoFmt: `${formatarPercentual(item.pareto)}%`
   }));
 
   const paretoRows = dados.pareto.map(item => ({
@@ -421,48 +508,59 @@ function renderizarAnaliseExecutiva(dados) {
   }));
 
   return `
-    <div class="exec-card">
-      <div class="exec-card-title">Análise do Processo</div>
+    <div class="exec-card${blocoColapsado("analise-processo") ? " colapsado" : ""}" data-bloco="analise-processo">
+      ${tituloBlocoColapsavel("analise-processo", "Análise do Processo", "exec-card-title")}
 
       ${renderResumoAnaliseExecutivo(dados)}
 
       ${renderTabelaAnaliseHTML({
+        chave: "top3-gargalos",
         titulo: "Top 3 Gargalos",
+        layoutFixo: true,
         columns: [
-          { header: "Atividade", key: "atividade", align: "left" },
-          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
-          { header: "%", key: "percentualFmt", align: "center" }
+          { header: "Atividade", key: "atividade", align: "left", width: "38%" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center", width: "26%" },
+          { header: "%", key: "percentualFmt", align: "center", width: "16%" },
+          { header: "Pareto", key: "paretoFmt", align: "center", width: "20%" }
         ],
         rows: top3Rows
       })}
 
       ${renderTabelaAnaliseHTML({
+        chave: "tempo-tipo",
         titulo: "Tempo por Tipo",
+        layoutFixo: true,
         columns: [
-          { header: "Tipo", key: "tipo", align: "left" },
-          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
-          { header: "%", key: "percentualFmt", align: "center" }
+          { header: "Tipo", key: "tipo", align: "left", width: "38%" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center", width: "26%" },
+          { header: "%", key: "percentualFmt", align: "center", width: "16%" },
+          { header: "Pareto", key: "paretoFmt", align: "center", width: "20%" }
         ],
         rows: tipoRows
       })}
 
       ${renderTabelaAnaliseHTML({
+        chave: "tempo-sistema",
         titulo: "Tempo por Sistema",
+        layoutFixo: true,
         columns: [
-          { header: "Sistema", key: "sistema", align: "left" },
-          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
-          { header: "%", key: "percentualFmt", align: "center" }
+          { header: "Sistema", key: "sistema", align: "left", width: "38%" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center", width: "26%" },
+          { header: "%", key: "percentualFmt", align: "center", width: "16%" },
+          { header: "Pareto", key: "paretoFmt", align: "center", width: "20%" }
         ],
         rows: sistemaRows
       })}
 
       ${renderTabelaAnaliseHTML({
+        chave: "pareto",
         titulo: "Pareto de Tempo",
+        layoutFixo: true,
         columns: [
-          { header: "Atividade", key: "atividade", align: "left" },
-          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
-          { header: "%", key: "percentualFmt", align: "center" },
-          { header: "Pareto", key: "paretoFmt", align: "center" }
+          { header: "Atividade", key: "atividade", align: "left", width: "38%" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center", width: "26%" },
+          { header: "%", key: "percentualFmt", align: "center", width: "16%" },
+          { header: "Pareto", key: "paretoFmt", align: "center", width: "20%" }
         ],
         rows: paretoRows
       })}

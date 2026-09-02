@@ -24,7 +24,10 @@ O documento vem colado ou anexado logo em seguida a esta mensagem. Pode ser de d
 ETAPA 1 — Antes de gerar qualquer arquivo, identifique quantos processos distintos aparecem no documento (um mesmo documento, principalmente uma entrevista, pode descrever mais de um processo). Para cada processo identificado, me apresente:
   - um nome curto para o processo;
   - um rascunho da sequência de passos, numerado, só com o nome de cada atividade (sem os campos técnicos ainda);
-  - quais desses passos você identificou como pontos de decisão (e para onde vai o "Não" de cada um);
+  - quais desses passos você identificou como pontos de decisão, indicando pra onde vai o "Sim" e pra onde vai o "Não" de cada um. Em CADA seta (Sim e Não), inclua sempre entre parênteses uma descrição curta da atividade de destino — não deixe só o número do passo — pra eu não precisar rolar a tela pra cima pra lembrar o que é aquele passo. Se o destino for um passo já numerado no rascunho, use "passo N (nome curto do passo N)"; se o destino for uma atividade nova que ainda não apareceu no rascunho (ex.: uma correção/exceção citada só ali), descreva-a direto entre parênteses. Formato esperado, um bloco por decisão:
+    Decisão 1: [pergunta da decisão]?
+    - Sim → passo N (nome curto da atividade do passo N)
+    - Não → passo M (nome curto da atividade do passo M) — ou, se levar a uma atividade nova: "criar [nome da atividade nova] e depois seguir para o passo N (nome curto do passo N)"
   - qualquer trecho em que a ordem ficou ambígua ou você não teve certeza.
 
 Depois do rascunho detalhado (de todos os processos, se houver mais de um), feche a resposta com um bloco separado, sob o título "Perguntas para confirmar", trazendo SÓ as perguntas que eu preciso responder — numeradas (1, 2, 3...), objetivas e curtas, sem repetir o rascunho por extenso. Inclua nesse bloco, no mínimo: a confirmação do nome de cada processo, a confirmação de que a sequência está correta, a confirmação de cada ponto de decisão identificado (e do destino do "Não"), e uma pergunta pra cada ambiguidade sinalizada. Formato esperado:

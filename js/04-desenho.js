@@ -276,11 +276,9 @@ function limparTudo() {
   terminalCounter = 1;
 
   const diagram = document.getElementById("diagram");
-  const infoProcesso = document.getElementById("infoProcesso");
   const metricas = document.getElementById("metricas");
 
   if (diagram) diagram.innerHTML = "";
-  if (infoProcesso) infoProcesso.innerHTML = "";
   if (metricas) metricas.innerHTML = "";
 
   // Esconde o painel de validação (volta ao estado inicial oculto).
