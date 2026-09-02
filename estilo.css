@@ -431,22 +431,17 @@ button.secondary:disabled {
 .exec-card-title {
   font-size: 14px; font-weight: 700; color: var(--brand);
   margin-bottom: 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  cursor: pointer; user-select: none;
 }
 
-.exec-info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+.bloco-seta { font-size: 18px; line-height: 1; color: var(--ink-2); }
+
+.exec-card.colapsado > *:not(.exec-card-title),
+.exec-table-block.colapsado > *:not(.exec-table-title) {
+  display: none;
 }
-.exec-info-item {
-  display: flex; flex-direction: column; gap: 3px;
-  padding: 12px 14px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-}
-.exec-info-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
-.exec-info-value { font-size: 16px; font-weight: 700; color: var(--ink); }
+.exec-card.colapsado .exec-card-title { margin-bottom: 0; }
 
 .exec-summary-grid {
   display: grid;
@@ -459,15 +454,39 @@ button.secondary:disabled {
   border-radius: var(--r-sm);
   padding: 12px 14px;
   background: var(--surface);
+  cursor: help;
 }
 .exec-summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
 .exec-summary-value { font-size: 16px; font-weight: 700; }
 
+.aviso-sem-tempo {
+  display: inline-block; margin-left: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0;
+  background: var(--warn-bg); color: var(--warn);
+  border: 1px solid var(--warn-bd); border-radius: 999px;
+  padding: 2px 8px; cursor: pointer; vertical-align: middle;
+}
+.aviso-sem-tempo:hover { background: var(--warn-bd); }
+
+.sem-tempo-dica { font-size: 12px; color: var(--ink-2); margin-bottom: 10px; line-height: 1.4; }
+.sem-tempo-lista { list-style: none; margin: 0; padding: 0; }
+.sem-tempo-lista li {
+  font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.sem-tempo-lista li:last-child { border-bottom: none; }
+.sem-tempo-area { color: var(--ink-2); font-size: 12px; }
+
 .exec-table-block { margin-top: 18px; }
-.exec-table-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--brand); }
+.exec-table-title {
+  font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--brand);
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.exec-table-block.colapsado .exec-table-title { margin-bottom: 0; }
 .exec-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
 
 .exec-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.exec-table-fixa { table-layout: fixed; }
 .exec-table th {
   background: var(--surface-3);
   color: var(--ink-2);
@@ -478,7 +497,13 @@ button.secondary:disabled {
 .exec-table td { border-bottom: 1px solid var(--border); padding: 9px 12px; }
 .exec-table tr:last-child td { border-bottom: none; }
 .exec-table tr:hover td { background: var(--accent-soft); }
-.th-center, .td-center { text-align: center; }
+.td-center { text-align: center; }
+/* Especificidade igual a ".exec-table th" (que fixa text-align:left) — sem
+   isso ".th-center" perdia o empate e o cabeçalho ficava sempre à esquerda,
+   mesmo com a classe aplicada (o valor da célula, sem esse conflito,
+   centralizava normal — dava a impressão de "valor desalinhado", quando na
+   verdade era o cabeçalho que nunca tinha centralizado). */
+.exec-table th.th-center { text-align: center; }
 
 .analytics-item { margin-bottom: 5px; font-size: 13px; }
 .icon-time { margin-left: 6px; margin-right: 2px; }
@@ -486,13 +511,14 @@ button.secondary:disabled {
 
 .analise-filtro {
   display: flex; align-items: center; gap: 10px;
-  margin-bottom: 14px; font-size: 13px;
-  padding: 12px 14px;
-  background: var(--surface-2);
+  margin-bottom: 16px; font-size: 13px;
+  padding: 18px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r);
+  box-shadow: var(--sh-sm);
 }
-.analise-filtro label { font-weight: 700; color: var(--ink-2); }
+.analise-filtro label { font-weight: 700; color: var(--brand); font-size: 14px; cursor: help; }
 .analise-filtro select {
   padding: 7px 10px; font-size: 13px; font-family: inherit;
   border: 1px solid var(--border-strong); border-radius: var(--r-xs);
@@ -500,7 +526,7 @@ button.secondary:disabled {
 }
 .analise-filtro select:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
 
-#infoProcesso, #metricas { margin-bottom: 8px; }
+#metricas { margin-bottom: 8px; }
 
 /* ============ Toasts ============ */
 #toastContainer {
@@ -566,7 +592,7 @@ button.secondary:disabled {
 
 /* ============ Editor: popover de conexão ============ */
 #popoverConexao, #criadorConexao, #moverCaixa, #moverRaia, #moverTerminal,
-#criadorCaixa, #criadorTerminal, #comecarDoZero {
+#criadorCaixa, #criadorTerminal, #comecarDoZero, #moverGrupo, #modalSemTempo {
   position: fixed; z-index: 10000; display: none;
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -581,6 +607,8 @@ button.secondary:disabled {
 #criadorCaixa { width: 280px; z-index: 10001; }
 #criadorTerminal { width: 280px; z-index: 10001; }
 #comecarDoZero { width: 280px; z-index: 10001; }
+#moverGrupo { width: 260px; z-index: 10001; }
+#modalSemTempo { width: 320px; z-index: 10001; max-height: 360px; overflow-y: auto; }
 
 /* Cabeçalho (título + ✕) e botão fechar — comuns a todos os popovers flutuantes do
    editor (mover raia/caixa/terminal, criador de caixa/conexão/terminal, popover de
@@ -624,6 +652,12 @@ button.secondary:disabled {
 .pop-grupo-linha > div { flex: 1; }
 .pop-label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2); margin-bottom: 6px; }
 .pop-botoes { display: flex; gap: 6px; }
+
+.pop-hint-decisao {
+  margin-top: 6px; padding: 6px 8px;
+  background: var(--accent-soft); color: var(--brand);
+  border-radius: var(--r-xs); font-size: 11.5px; line-height: 1.35;
+}
 
 .lado-btn {
   flex: 1;
@@ -688,6 +722,9 @@ button.secondary:disabled {
 .dpad-btn:hover { background: var(--accent-hover); }
 .dpad-center { font-size: 11px; font-weight: 700; color: var(--brand); text-align: center; min-width: 78px; }
 .mover-dica { font-size: 11px; color: var(--ink-2); text-align: center; margin-top: 4px; }
+
+.mover-grupo-dica { font-size: 12px; color: var(--ink-2); margin-bottom: 10px; line-height: 1.4; }
+.mover-grupo-contador { font-size: 12px; font-weight: 600; color: var(--brand); margin-bottom: 10px; }
 
 /* ============ Responsivo + acessibilidade ============ */
 @media (max-width: 720px) {
