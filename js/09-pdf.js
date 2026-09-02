@@ -126,18 +126,32 @@ function coletarDadosAnaliseEstruturados(filtroArea = "") {
     item.pareto = acumulado;
   });
 
+  // Tudo acima (tempoTotal, top3Gargalos, tempoPorTipo, tempoPorSistema,
+  // pareto) é tempo de UMA execução — igual ao cálculo de FTE já fazia
+  // internamente (calcularFTE, 06-analise.js), mas que não aparecia nos
+  // números exibidos aqui. Escala pela volumetria (execuções/mês) pra virar
+  // volume mensal real, coerente com o FTE mostrado ao lado — sem volumetria
+  // informada, o multiplicador é 1 e os números continuam exatamente como
+  // antes (tempo de uma execução só). Os percentuais NÃO mudam (são razões:
+  // escalar tudo pelo mesmo fator não altera proporção nenhuma).
+  const volumetriaNum = parseFloat(String(obterValorCampo("volumetria") || "").replace(",", ".")) || 0;
+  const multVolumetria = volumetriaNum > 0 ? volumetriaNum : 1;
+  const escalar = (segundos) => segundos * multVolumetria;
+
   return {
-    tempoTotal,
+    tempoTotal: escalar(tempoTotal),
+    tempoTotalPorExecucao: tempoTotal,   // sem escalar — é o que calcularFTE espera receber (ela mesma multiplica)
     loops,
     conexoesExtrasCount,
-    tempoPotencialRetrabalho,
+    tempoPotencialRetrabalho: escalar(tempoPotencialRetrabalho),
     impactoPotencialRetrabalho,
     decisoes,
     taxaDecisao,
-    top3Gargalos,
-    tempoPorTipo,
-    tempoPorSistema,
-    pareto
+    top3Gargalos: top3Gargalos.map(item => ({ ...item, tempo: escalar(item.tempo) })),
+    tempoPorTipo: tempoPorTipo.map(item => ({ ...item, tempo: escalar(item.tempo) })),
+    tempoPorSistema: tempoPorSistema.map(item => ({ ...item, tempo: escalar(item.tempo) })),
+    pareto: pareto.map(item => ({ ...item, tempo: escalar(item.tempo) })),
+    volumetriaAplicada: volumetriaNum > 0
   };
 }
 
@@ -428,7 +442,7 @@ async function _baixarAnalisePDFInterno() {
   if (filtroAnaliseArea) {
     etapasPdf = etapasPdf.filter(e => (limpar(e.area || "") || "Sem Área") === filtroAnaliseArea);
   }
-  const ftePdf = calcularFTE(dados.tempoTotal, etapasPdf);
+  const ftePdf = calcularFTE(dados.tempoTotalPorExecucao, etapasPdf);
 
   y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
   doc.text(`Escopo: ${filtroAnaliseArea ? "Raia " + filtroAnaliseArea : "Processo inteiro"}`, margem, y);
@@ -442,8 +456,15 @@ async function _baixarAnalisePDFInterno() {
   );
   y += 18;
 
+  // Com volumetria informada, os tempos abaixo (e das tabelas mais adiante)
+  // já vêm multiplicados por ela (volume mensal, coerente com o FTE) — ver
+  // coletarDadosAnaliseEstruturados, no topo deste arquivo. Deixa isso
+  // explícito nos rótulos pra não parecer inconsistente com o "Tempo total
+  // do processo" do card de cima, que é só uma execução.
+  const sufixoMensal = dados.volumetriaAplicada ? " (mensal)" : "";
+
   y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
-  doc.text(`Tempo total do processo: ${formatarTempo(dados.tempoTotal)}`, margem, y);
+  doc.text(`Tempo total do processo${sufixoMensal}: ${formatarTempo(dados.tempoTotal)}`, margem, y);
   y += 18;
 
   y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
@@ -452,7 +473,7 @@ async function _baixarAnalisePDFInterno() {
 
   y = garantirEspacoPagina(doc, y, 18, margem, pageHeight);
   doc.text(
-    `Potencial retrabalho: ${formatarTempo(dados.tempoPotencialRetrabalho)} | ${formatarPercentual(dados.impactoPotencialRetrabalho)}%`,
+    `Potencial retrabalho${sufixoMensal}: ${formatarTempo(dados.tempoPotencialRetrabalho)} | ${formatarPercentual(dados.impactoPotencialRetrabalho)}%`,
     margem,
     y
   );
@@ -467,16 +488,17 @@ async function _baixarAnalisePDFInterno() {
   y += 6;
 
   if (!filtroAnaliseArea && ftePdf.ftePorArea && ftePdf.ftePorArea.length > 1) {
+    const sufixoMensalFte = ftePdf.volumetria > 0 ? " (mensal)" : "";
     y = desenharTabelaPDF(doc, {
       titulo: "FTE por Área",
       columns: [
         { header: "Área", key: "area", weight: 5.5, align: "left" },
-        { header: "Tempo (horas)", key: "tempoFmt", weight: 1.6, align: "center" },
+        { header: "Tempo (horas)" + sufixoMensalFte, key: "tempoFmt", weight: 1.6, align: "center" },
         { header: "FTE", key: "fteFmt", weight: 1.2, align: "center" }
       ],
       rows: ftePdf.ftePorArea.map(a => ({
         area: a.area,
-        tempoFmt: formatarTempo(a.tempoSeg),
+        tempoFmt: formatarTempo(a.tempoSegMensal),
         fteFmt: formatarFTE(a.fte)
       })),
       x: margem,
@@ -559,7 +581,7 @@ async function _baixarAnalisePDFInterno() {
     titulo: "Top 3 Gargalos",
     columns: [
       { header: "Atividade", key: "atividade", weight: 5.5, align: "left" },
-      { header: "Tempo (horas)", key: "tempoFmt", weight: 1.6, align: "center" },
+      { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", weight: 1.6, align: "center" },
       { header: "%", key: "percentualFmt", weight: 1.2, align: "center" }
     ],
     rows: dados.top3Gargalos.map(item => ({
@@ -578,7 +600,7 @@ async function _baixarAnalisePDFInterno() {
     titulo: "Tempo por Tipo",
     columns: [
       { header: "Tipo", key: "tipo", weight: 5.5, align: "left" },
-      { header: "Tempo (horas)", key: "tempoFmt", weight: 1.6, align: "center" },
+      { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", weight: 1.6, align: "center" },
       { header: "%", key: "percentualFmt", weight: 1.2, align: "center" }
     ],
     rows: dados.tempoPorTipo.map(item => ({
@@ -597,7 +619,7 @@ async function _baixarAnalisePDFInterno() {
     titulo: "Tempo por Sistema",
     columns: [
       { header: "Sistema", key: "sistema", weight: 5.5, align: "left" },
-      { header: "Tempo (horas)", key: "tempoFmt", weight: 1.6, align: "center" },
+      { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", weight: 1.6, align: "center" },
       { header: "%", key: "percentualFmt", weight: 1.2, align: "center" }
     ],
     rows: dados.tempoPorSistema.map(item => ({
@@ -616,7 +638,7 @@ async function _baixarAnalisePDFInterno() {
     titulo: "Pareto de Tempo",
     columns: [
       { header: "Atividade", key: "atividade", weight: 5.4, align: "left" },
-      { header: "Tempo (horas)", key: "tempoFmt", weight: 1.5, align: "center" },
+      { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", weight: 1.5, align: "center" },
       { header: "%", key: "percentualFmt", weight: 1.0, align: "center" },
       { header: "Pareto", key: "paretoFmt", weight: 1.3, align: "center" }
     ],

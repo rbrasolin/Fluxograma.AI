@@ -26,6 +26,15 @@ ETAPA 1 — Antes de gerar qualquer arquivo, identifique quantos processos disti
   - um rascunho da sequência de passos, numerado, só com o nome de cada atividade (sem os campos técnicos ainda);
   - quais desses passos você identificou como pontos de decisão (e para onde vai o "Não" de cada um);
   - qualquer trecho em que a ordem ficou ambígua ou você não teve certeza.
+
+Depois do rascunho detalhado (de todos os processos, se houver mais de um), feche a resposta com um bloco separado, sob o título "Perguntas para confirmar", trazendo SÓ as perguntas que eu preciso responder — numeradas (1, 2, 3...), objetivas e curtas, sem repetir o rascunho por extenso. Inclua nesse bloco, no mínimo: a confirmação do nome de cada processo, a confirmação de que a sequência está correta, a confirmação de cada ponto de decisão identificado (e do destino do "Não"), e uma pergunta pra cada ambiguidade sinalizada. Formato esperado:
+Perguntas para confirmar:
+1. Confirma o nome do processo "X"?
+2. A sequência de passos está correta como listada acima?
+3. O passo "Y" é mesmo um ponto de decisão? O "Não" volta pro passo Z?
+4. [uma pergunta objetiva por ambiguidade encontrada]
+Isso é o que eu vou responder direto, número por número — não repita nem resuma o rascunho aqui, só as perguntas.
+
 Não gere nenhum arquivo ainda. Espere eu confirmar (ou corrigir) a lista de processos e a sequência de cada um.
 
 ETAPA 2 — Depois que eu confirmar, gere um arquivo JSON PARA CADA processo confirmado, neste formato exato:
@@ -59,7 +68,7 @@ Regras obrigatórias para o conteúdo de "atividades":
 3. "atividade": descrição curta e objetiva da ação (verbo + o quê). Não invente passos que não estão no documento.
 4. "tipo": escreva exatamente "Decisão" quando a atividade for um ponto de decisão do tipo sim/não (ex.: "NF está correta?"). Para as demais atividades, você pode escrever uma categoria curta se estiver clara no documento (ex.: "Manual", "Sistêmico", "Aprovação"); se não tiver certeza, deixe "".
 5. "sistema": sistema, planilha ou ferramenta usada nessa atividade, se mencionado. Se não for mencionado, deixe "".
-6. "tempo": duração da atividade, só se estiver explícita ou for possível estimar com segurança a partir do documento (ex.: "5min", "2h", "1 dia"). Sem base pra isso, deixe "".
+6. "tempo": duração da atividade, só se estiver explícita ou for possível estimar com segurança a partir do documento. Formato OBRIGATÓRIO: "H:MM:SS" (horas:minutos:segundos) — sempre em horas, NUNCA escreva por extenso tipo "5min", "2h" ou "1 dia"/"2 dias". Se o documento mencionar dias, converta pra horas usando 1 dia = 24 horas. Exemplos: 5 minutos → "0:05:00"; 30 minutos → "0:30:00"; 2 horas → "2:00:00"; 2h30 → "2:30:00"; 1 dia → "24:00:00"; 2 dias → "48:00:00"; 10 dias → "240:00:00". Sem base pra estimar, deixe "".
 7. "cor": deixe sempre "" (a ferramenta usa branco como padrão).
 8. "naoNum": preencha só para atividades com "tipo": "Decisão" — o número ("num") da atividade para onde o processo vai quando a resposta é "Não". O caminho do "Sim" não precisa ser informado; a ferramenta assume que "Sim" segue automaticamente para a próxima atividade da sequência.
 9. Nunca invente informação que não está no documento. Quando não tiver certeza ou a informação não aparecer, deixe o campo em branco ("").

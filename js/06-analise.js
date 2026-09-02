@@ -55,6 +55,12 @@ function gerarTabelaPareto(atividadesTempo, tempoTotal) {
    FTE = (tempo por execução em horas x volumetria mensal) / valor FTE (h/mês)
    Helper único usado pela tela e pelo PDF. Calcula total e por área.
 ===================================================================== */
+/* tempoTotalSegundos DEVE ser por execu\u00e7\u00e3o (n\u00e3o multiplicado por volumetria
+   ainda) \u2014 essa fun\u00e7\u00e3o \u00e9 quem faz a multiplica\u00e7\u00e3o, uma vez s\u00f3. Passar um
+   tempo j\u00e1 mensal aqui conta a volumetria duas vezes (bug real: FTE total
+   saiu 45,64 em vez de 2,28 \u2014 exatamente 20x o valor certo \u2014 porque
+   coletarDadosAnaliseEstruturados, em 09-pdf.js, j\u00e1 devolve tempoTotal
+   mensal; use dados.tempoTotalPorExecucao pra alimentar esta fun\u00e7\u00e3o). */
 function calcularFTE(tempoTotalSegundos, etapas) {
   const valorFTE = parseFloat(String(obterValorCampo("valorFTE") || "").replace(",", ".")) || 0;
   const volumetria = parseFloat(String(obterValorCampo("volumetria") || "").replace(",", ".")) || 0;
@@ -70,7 +76,8 @@ function calcularFTE(tempoTotalSegundos, etapas) {
   const ftePorArea = Object.entries(porArea)
     .map(([area, seg]) => ({
       area,
-      tempoSeg: seg,
+      tempoSeg: seg,                                              // por execu\u00e7\u00e3o \u2014 base do c\u00e1lculo de FTE, n\u00e3o exibir direto
+      tempoSegMensal: volumetria > 0 ? seg * volumetria : seg,     // exibi\u00e7\u00e3o: volume mensal, coerente com o resto da An\u00e1lise
       fte: valido ? ((seg / 3600) * volumetria) / valorFTE : null
     }))
     .sort((x, y) => y.tempoSeg - x.tempoSeg);
@@ -177,10 +184,11 @@ function renderTabelaAnaliseHTML({ titulo, columns, rows }) {
 }
 
 function renderResumoAnaliseExecutivo(dados) {
+  const sufixoMensal = dados.volumetriaAplicada ? " (mensal)" : "";
   return `
     <div class="exec-summary-grid">
       <div class="exec-summary-item">
-        <div class="exec-summary-label">Tempo total do processo</div>
+        <div class="exec-summary-label">Tempo total do processo${sufixoMensal}</div>
         <div class="exec-summary-value">${formatarTempo(dados.tempoTotal)}</div>
       </div>
       <div class="exec-summary-item">
@@ -188,7 +196,7 @@ function renderResumoAnaliseExecutivo(dados) {
         <div class="exec-summary-value">${dados.loops}</div>
       </div>
       <div class="exec-summary-item">
-        <div class="exec-summary-label">Potencial retrabalho</div>
+        <div class="exec-summary-label">Potencial retrabalho${sufixoMensal}</div>
         <div class="exec-summary-value">${formatarTempo(dados.tempoPotencialRetrabalho)} | ${formatarPercentual(dados.impactoPotencialRetrabalho)}%</div>
       </div>
       <div class="exec-summary-item">
@@ -217,10 +225,11 @@ function renderFTEResumo(fte, filtroArea) {
       <div class="exec-summary-item"><div class="exec-summary-label">Valor FTE</div><div class="exec-summary-value">${fte.valorFTE ? fte.valorFTE + " h/m\u00eas" : "N\u00e3o informado"}</div></div>
     </div>`;
   if (!filtroArea && fte.ftePorArea && fte.ftePorArea.length > 1) {
+    const sufixoMensalFte = fte.volumetria > 0 ? " (mensal)" : "";
     const rows = fte.ftePorArea.map(a =>
-      `<tr><td>${escaparHTML(a.area)}</td><td class="td-center">${formatarTempo(a.tempoSeg)}</td><td class="td-center">${formatarFTE(a.fte)}</td></tr>`
+      `<tr><td>${escaparHTML(a.area)}</td><td class="td-center">${formatarTempo(a.tempoSegMensal)}</td><td class="td-center">${formatarFTE(a.fte)}</td></tr>`
     ).join("");
-    html += `<div class="exec-table-block"><div class="exec-table-title">FTE por \u00e1rea</div><div class="exec-table-wrap"><table class="exec-table"><thead><tr><th>\u00c1rea</th><th class="th-center">Tempo</th><th class="th-center">FTE</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    html += `<div class="exec-table-block"><div class="exec-table-title">FTE por \u00e1rea</div><div class="exec-table-wrap"><table class="exec-table"><thead><tr><th>\u00c1rea</th><th class="th-center">Tempo${sufixoMensalFte}</th><th class="th-center">FTE</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }
   html += `</div>`;
   return html;
@@ -366,7 +375,7 @@ function renderAnaliseComFiltro() {
   if (filtroAnaliseArea) {
     etapasFiltradas = etapasFiltradas.filter(e => (limpar(e.area || "") || "Sem \u00c1rea") === filtroAnaliseArea);
   }
-  const fte = calcularFTE(dados.tempoTotal, etapasFiltradas);
+  const fte = calcularFTE(dados.tempoTotalPorExecucao, etapasFiltradas);
 
   const opts = ['<option value="">Todos</option>'].concat(
     areasAtuais.map(a => `<option value="${escaparHTML(a)}" ${a === filtroAnaliseArea ? "selected" : ""}>${escaparHTML(a)}</option>`)
@@ -380,6 +389,12 @@ function renderAnaliseComFiltro() {
 }
 
 function renderizarAnaliseExecutiva(dados) {
+  // Com volumetria informada, todo tempo abaixo já vem multiplicado (volume
+  // mensal, coerente com o FTE) — deixa isso explícito nos rótulos, senão os
+  // números saltam sem explicação em relação ao "tempo por execução" mostrado
+  // no topo (ver coletarDadosAnaliseEstruturados, em 09-pdf.js).
+  const sufixoMensal = dados.volumetriaAplicada ? " (mensal)" : "";
+
   const top3Rows = dados.top3Gargalos.map(item => ({
     atividade: item.atividade,
     tempoFmt: formatarTempo(item.tempo),
@@ -415,7 +430,7 @@ function renderizarAnaliseExecutiva(dados) {
         titulo: "Top 3 Gargalos",
         columns: [
           { header: "Atividade", key: "atividade", align: "left" },
-          { header: "Tempo (horas)", key: "tempoFmt", align: "center" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
           { header: "%", key: "percentualFmt", align: "center" }
         ],
         rows: top3Rows
@@ -425,7 +440,7 @@ function renderizarAnaliseExecutiva(dados) {
         titulo: "Tempo por Tipo",
         columns: [
           { header: "Tipo", key: "tipo", align: "left" },
-          { header: "Tempo (horas)", key: "tempoFmt", align: "center" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
           { header: "%", key: "percentualFmt", align: "center" }
         ],
         rows: tipoRows
@@ -435,7 +450,7 @@ function renderizarAnaliseExecutiva(dados) {
         titulo: "Tempo por Sistema",
         columns: [
           { header: "Sistema", key: "sistema", align: "left" },
-          { header: "Tempo (horas)", key: "tempoFmt", align: "center" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
           { header: "%", key: "percentualFmt", align: "center" }
         ],
         rows: sistemaRows
@@ -445,7 +460,7 @@ function renderizarAnaliseExecutiva(dados) {
         titulo: "Pareto de Tempo",
         columns: [
           { header: "Atividade", key: "atividade", align: "left" },
-          { header: "Tempo (horas)", key: "tempoFmt", align: "center" },
+          { header: "Tempo (horas)" + sufixoMensal, key: "tempoFmt", align: "center" },
           { header: "%", key: "percentualFmt", align: "center" },
           { header: "Pareto", key: "paretoFmt", align: "center" }
         ],

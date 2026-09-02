@@ -198,9 +198,18 @@ function excelAplicarBase(base, mensagemSucesso) {
   linhas.forEach((l) => {
     const uid = gerarUID();
     if (l.num) numParaUid[l.num] = uid;
+    // Área/Tipo/Sistema passam pela mesma normalização/dedupe (por grafia,
+    // case-insensitive) que a tabela e o popover "Mover caixa" já usam —
+    // sem isso, "Comercial" numa linha e "comercial" noutra (bem plausível
+    // vindo de IA ou planilha) viravam categorias/raias duplicadas. Chamada
+    // linha a linha, nessa ordem, pra deduplicar contra o que já foi
+    // importado nesta mesma leva (fluxoData já contém as linhas anteriores).
+    const area = normalizarTextoCampo("area", l.area || "");
+    const tipo = normalizarTextoCampo("tipo", l.tipo || "");
+    const sistema = normalizarTextoCampo("sistema", l.sistema || "");
     fluxoData.push({
       uid, ordem: 0, id: "",
-      area: l.area, atividade: l.atividade, tipo: l.tipo, sistema: l.sistema,
+      area, atividade: l.atividade, tipo, sistema,
       tempo: l.tempo, coluna: 1, linha: 1, colunaManual: false, linhaManual: false, cor: l.cor,
       proxSim: "", proxSimAuto: false, proxNao: "", extras: [],
       _naoNum: l.naoNum

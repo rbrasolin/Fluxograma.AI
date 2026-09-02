@@ -68,7 +68,8 @@ function obterEstadoAtual() {
           proxNao: item.proxNao || "",
           extras: Array.isArray(item.extras) ? [...item.extras] : [],
           semSaida: !!item.semSaida,
-          simRemovido: !!item.simRemovido
+          simRemovido: !!item.simRemovido,
+          simSlotCongelado: !!item.simSlotCongelado
         }))
       : [],
     uidCounter: Number(uidCounter) || 1,
@@ -170,7 +171,8 @@ function restaurarEstadoLocal() {
           proxNao: item.proxNao || "",
           extras: Array.isArray(item.extras) ? [...item.extras] : [],
           semSaida: !!item.semSaida,
-          simRemovido: !!item.simRemovido
+          simRemovido: !!item.simRemovido,
+          simSlotCongelado: !!item.simSlotCongelado
         }))
       : [];
 

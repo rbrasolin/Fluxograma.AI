@@ -235,9 +235,14 @@ function reaplicarSugestoesConexao(forcarTudo = false) {
     // Onda 3: como não existe mais a coluna "Próxima", o "Sim" é SEMPRE a
     // próxima atividade da ordem. Garante a conexão sempre que o "Sim" estiver
     // vazio, EXCETO quando a saída foi removida de propósito no editor
-    // (semSaida) ou quando esse destino já está ligado por outra via. Decisões
-    // também recebem o "Sim" automático aqui; o "Não" continua manual.
-    if (!linha.proxSim && !linha.semSaida && !linha.simRemovido) {
+    // (semSaida), quando o slot do Sim está temporariamente congelado por
+    // uma inserção recente (simSlotCongelado — ver criarConexaoNovaCaixa/
+    // inserirNovaCaixa; campo próprio, separado de semSaida, pra não fazer
+    // esse congelamento interno ser lido como "usuário marcou sem saída de
+    // propósito" e a caixa perder a seta automática pro Fim), ou quando esse
+    // destino já está ligado por outra via. Decisões também recebem o "Sim"
+    // automático aqui; o "Não" continua manual.
+    if (!linha.proxSim && !linha.semSaida && !linha.simSlotCongelado && !linha.simRemovido) {
       if (jaLigaSugestao) return;
       linha.proxSim = sugestaoUid;
       linha.proxSimAuto = !!sugestaoUid;

@@ -39,12 +39,46 @@ function corHex(cor) {
   return mapa[cor] || "#ffffff";
 }
 
+/* Fallback pra formato natural de duração ("30min", "2h", "2h30min",
+   "1 dia"...) — usado só quando o texto NÃO é um número puro nem H:M:S (ver
+   tempoParaSegundos). A IA às vezes ainda escreve assim mesmo com o prompt
+   pedindo H:MM:SS explicitamente, e digitar direto na ferramenta (tabela ou
+   popover "Mover caixa") também deve funcionar, não só o formato oficial.
+   Tudo em horas, nunca dia — "1 dia" = 24h corridas (mesma convenção do
+   prompt da IA: 2 dias = 48h, 10 dias = 240h). Retorna null (não 0) quando
+   não reconhece nada, pra tempoParaSegundos distinguir "não achei nenhuma
+   unidade" de "achei e dava zero". */
+function tempoNaturalParaSegundos(texto) {
+  const t = " " + String(texto).toLowerCase().replace(",", ".") + " ";
+  let total = 0;
+  let achou = false;
+
+  const dias = t.match(/(\d+(?:\.\d+)?)\s*d(?:ia|ias)?\b/);
+  if (dias) { total += parseFloat(dias[1]) * 24 * 3600; achou = true; }
+
+  const horas = t.match(/(\d+(?:\.\d+)?)\s*h(?:oras?)?\b/);
+  if (horas) { total += parseFloat(horas[1]) * 3600; achou = true; }
+
+  const minutos = t.match(/(\d+(?:\.\d+)?)\s*min(?:utos?)?\b/);
+  if (minutos) { total += parseFloat(minutos[1]) * 60; achou = true; }
+
+  return achou ? Math.round(total) : null;
+}
+
 function tempoParaSegundos(tempo) {
   if (!tempo) return 0;
   tempo = String(tempo).trim();
 
   if (!tempo.includes(":")) {
-    return (Number(tempo.replace(",", ".")) || 0) * 3600;
+    // Número puro (sem unidade) = horas — comportamento original, intocado.
+    const comoNumero = Number(tempo.replace(",", "."));
+    if (!isNaN(comoNumero)) {
+      return comoNumero * 3600;
+    }
+
+    // Não é número puro: tenta o formato natural antes de desistir e zerar.
+    const natural = tempoNaturalParaSegundos(tempo);
+    return natural !== null ? natural : 0;
   }
 
   const partes = tempo.split(":");

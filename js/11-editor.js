@@ -137,6 +137,7 @@ function removerCamadaEdicao() {
 let popoverPos = { x: 0, y: 0 };
 
 function abrirPopoverConexao(origemId, destinoId, x, y) {
+  fecharTodosOsPopovers();
   conexaoSelecionada = { origemId, destinoId };
   popoverPos = { x, y };
   renderPopoverConexao();
@@ -336,6 +337,7 @@ function moverRaia(nome, direcao) {
    padrão visual/posicionamento do popover "Mover caixa".
 ===================================================================== */
 function abrirMoverRaia(nome, ev) {
+  fecharTodosOsPopovers();
   const n = String(nome);
   mostrarBackdropEditor();
 
@@ -486,6 +488,7 @@ function definirAlvoTerminal(termId, novoAlvo) {
 }
 
 function abrirMoverTerminal(termId, ev) {
+  fecharTodosOsPopovers();
   const tipo = tipoDoTerminal(termId);
   const nome = tipo === "inicio" ? "Início" : "Fim";
   const etapas = obterEtapasDaTabela();
@@ -621,10 +624,29 @@ function resetarAjustesFluxo() {
   mostrarToast("Ajustes manuais removidos. Fluxo voltou ao automático.", "ok");
 }
 
+/* Fecha TODOS os popovers do editor de uma vez — usada tanto pelo listener de
+   "clicar fora" abaixo quanto no topo de cada abrirX(), pra garantir que só
+   existe um popover aberto por vez. Sem isso, abrir um popover novo enquanto
+   outro já estava aberto (ex.: abrir "Mover caixa" com "Mover raia" ainda de
+   pé) deixava os dois empilhados na tela — bug real, achado num teste: um
+   clique que devia abrir "Mover terminal" acabou sendo capturado pelo
+   "Mover raia" que tinha ficado preso ali por baixo. */
+function fecharTodosOsPopovers() {
+  fecharPopoverConexao();
+  fecharMoverCaixa();
+  fecharMoverRaia();
+  fecharMoverTerminal();
+  fecharCriadorConexao();
+  fecharCriadorCaixa();
+  fecharCriadorTerminal();
+  fecharComecarDoZero();
+}
+
 /* Fecha os popovers do editor ao clicar fora deles. Não fecha se o clique foi:
    - dentro de algum popover aberto (não interrompe o que o usuário está fazendo);
    - num elemento que ELE MESMO abre/troca um popover (caixa, seta, raia, terminal) —
-     senão o popover abriria e seria fechado no mesmo clique. */
+     senão o popover abriria e seria fechado no mesmo clique (quem abre já chama
+     fecharTodosOsPopovers() por conta própria, ver cada abrirX() abaixo). */
 document.addEventListener("click", (event) => {
   if (!event.target || !event.target.closest) return;
   if (event.target.closest(
@@ -637,14 +659,7 @@ document.addEventListener("click", (event) => {
   if (event.target.closest(".raias-dica")) return;   // + Início / + Fim / + Raia / Resetar
   if (event.target.closest("#blocoComecarZero")) return; // botão "Começar a desenhar"
 
-  fecharPopoverConexao();
-  fecharMoverCaixa();
-  fecharMoverRaia();
-  fecharMoverTerminal();
-  fecharCriadorConexao();
-  fecharCriadorCaixa();
-  fecharCriadorTerminal();
-  fecharComecarDoZero();
+  fecharTodosOsPopovers();
 });
 
 /* =====================================================================
@@ -850,14 +865,24 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
     linha.proxSim = dUid;
     linha.proxSimAuto = false;
     linha.simRemovido = false; // Sim recriado manualmente
+    // Caixa voltou a ter saída "Sim" -> não é mais "sem saída de propósito"
+    // nesse slot. Só reseta AQUI (não em "não"/"extra" abaixo): esses dois
+    // campos só são lidos por reaplicarSugestoesConexao pra decidir se
+    // auto-liga o Sim — criar uma seta "Não" ou "extra" não deveria reabrir
+    // esse slot. `semSaida` é a marcação do usuário ("sem saída de
+    // propósito", também lida pelo desenho do Fim automático);
+    // `simSlotCongelado` é o congelamento interno e temporário de
+    // criarConexaoNovaCaixa/inserirNovaCaixa (ver `ultimaAntes` nas duas) —
+    // campos separados de propósito, pra o congelamento interno não ser
+    // lido como "usuário disse que não tem saída" e a caixa perder a seta
+    // pro Fim (bug real, achado com o mesmo fluxo de teste do Achado 4).
+    linha.semSaida = false;
+    linha.simSlotCongelado = false;
   } else if (tipo === "nao") {
     linha.proxNao = dUid;
   } else {
     linha.extras.push(dUid);
   }
-
-  // Caixa voltou a ter saída -> não é mais "sem saída de propósito".
-  linha.semSaida = false;
 
   // Rótulo explícito: se o usuário escolheu Sim/Não, a seta sempre mostra o texto
   // (mesmo entre caixas que não são decisão).
@@ -875,27 +900,44 @@ function criarConexao(origemVisual, destinoVisual, tipo) {
 
    Duas mecânicas separadas, cada uma resolvendo um efeito colateral distinto:
 
-   1) COLUNA: em vez de procurar a próxima coluna LIVRE na raia (o que fazia a
-      caixa nova pular pra depois de qualquer coisa que já estivesse no
-      caminho, aterrissando longe de onde o usuário clicou), empurra +1 tudo
-      que já ocupava coluna >= origem+1 — em TODAS as raias, igual
-      inserirNovaCaixa (a coluna é o eixo do tempo, compartilhado entre raias).
-      Assim a caixa nova sempre entra logo ao lado da origem.
+   1) COLUNA/LINHA: nunca empurra OUTRAS raias — "+ Caixa a partir daqui" é
+      sempre uma extensão LOCAL a partir da caixa clicada. Se a coluna logo
+      depois da origem já estiver ocupada NESSA raia (o caso de uma decisão
+      ganhando a 2ª saída — Sim e Não a partir da mesma caixa —, já que as
+      duas competem pela mesma coluna), empilha a caixa nova numa linha
+      abaixo, na MESMA coluna, em vez de empurrar a coluna de tudo. Bug real,
+      achado num fluxo grande de teste (4 raias, decisões ramificadas): a 2ª
+      saída de uma decisão empurrava caixas de raias sem relação nenhuma —
+      e, como um fluxo grande acumula várias colisões ao longo da montagem,
+      uma caixa que já estava bem posicionada ia sendo empurrada repetidas
+      vezes por colisões alheias, até ficar isolada longe de onde devia
+      (setas gigantes cruzando o fluxo inteiro, quase impossíveis de clicar).
+      Empilhar Sim/Não na mesma coluna (em vez de um do lado do outro) é
+      também mais correto: são caminhos ALTERNATIVOS, não sequenciais — não
+      faz sentido um vir "depois" do outro no eixo do tempo.
+      inserirNovaCaixa (motor do "+ Inserir caixa aqui"/"+ Raia") NÃO muda —
+      continua empurrando globalmente quando splica no meio de uma seta
+      existente, porque ali a colisão é sempre real (o destino que já estava
+      lá) — cenário genuinamente diferente deste.
 
    2) ARRAY: "nova" sempre entra no FIM do array (fluxoData.push) — nunca
-      desloca ninguém no array (só na coluna, acima), então nenhuma letra
-      muda e dispensa reletramento. Mas isso faz a linha que HOJE é a última
-      do array virar a "próxima" dela aos olhos de reaplicarSugestoesConexao
-      (chamada por gerarFluxo logo em seguida), que auto-liga todo "Sim"
-      vazio à próxima linha do array. Se essa última linha for uma caixa
-      qualquer sem saída — não necessariamente a origem clicada —, ela ganhava
-      uma seta "Sim" pra caixa nova que ninguém pediu (bug real, achado num
-      .json de teste do usuário: clique em B criou uma seta fantasma D→nova,
-      só porque D por acaso era a última linha do array). Congela essa linha
-      como "sem saída de propósito" pra evitar isso. Se por acaso for a
-      própria origem (o caso mais comum: continuar desenhando a partir da
-      última caixa do fluxo), criarConexao desfaz o congelamento normalmente,
-      ao ligar a saída real dela na nova caixa.
+      desloca ninguém no array (só na coluna/linha, acima), então nenhuma
+      letra muda e dispensa reletramento. Mas isso faz a linha que HOJE é a
+      última do array virar a "próxima" dela aos olhos de
+      reaplicarSugestoesConexao (chamada por gerarFluxo logo em seguida),
+      que auto-liga todo "Sim" vazio à próxima linha do array. Se essa
+      última linha for uma caixa qualquer sem saída — não necessariamente a
+      origem clicada —, ela ganhava uma seta "Sim" pra caixa nova que
+      ninguém pediu (bug real, achado num .json de teste do usuário: clique
+      em B criou uma seta fantasma D→nova, só porque D por acaso era a
+      última linha do array). Congela o slot do Sim dessa linha
+      (`simSlotCongelado` — campo próprio, separado de `semSaida`, pra não
+      ser lido como "usuário marcou sem saída de propósito" e a caixa
+      perder a seta automática pro Fim; ver reaplicarSugestoesConexao) pra
+      evitar isso. Se por acaso for a própria origem (o caso mais comum:
+      continuar desenhando a partir da última caixa do fluxo), criarConexao
+      desfaz o congelamento normalmente, ao ligar a saída real dela na caixa
+      nova.
 
    A conexão em si (Sim/Não/extra, rótulo, guarda anti-duplicata) é 100%
    delegada a criarConexao — zero wiring duplicado. */
@@ -915,24 +957,15 @@ function criarConexaoNovaCaixa(origemVisual, tipo, tipoCaixaBruto, atividadeText
   const linhaLane = Math.max(1, Number(origemLinha.linha) || 1);
   const col = Math.max(1, Number(origemLinha.coluna) || 1) + 1;
 
-  // Só empurra +1 se a coluna logo depois da origem já estiver ocupada
-  // (nessa mesma raia/linha) — se a origem for a última caixa da raia (o
-  // caso mais comum: continuar desenhando a partir da última), não tem nada
-  // no caminho, e empurrar mesmo assim bagunçaria raias sem relação nenhuma
-  // com essa caixa nova (mesmo bug de inserirNovaCaixa, mesma causa).
-  if (existePosicaoOcupadaNaRaia(null, area, linhaLane, col)) {
-    fluxoData.forEach((l) => {
-      if (limpar(l.atividade || "") === "") return;
-      if ((Number(l.coluna) || 1) >= col) {
-        l.coluna = (Number(l.coluna) || 1) + 1;
-        l.colunaManual = true;
-      }
-    });
+  // Empilha em vez de empurrar — ver mecânica 1) acima.
+  let linhaAlvo = linhaLane;
+  while (existePosicaoOcupadaNaRaia(null, area, linhaAlvo, col)) {
+    linhaAlvo++;
   }
 
   const ultimaAntes = fluxoData[fluxoData.length - 1];
   if (ultimaAntes && !ultimaAntes.proxSim && !ultimaAntes.semSaida && !ultimaAntes.simRemovido) {
-    ultimaAntes.semSaida = true;
+    ultimaAntes.simSlotCongelado = true;
   }
 
   const nova = {
@@ -940,7 +973,7 @@ function criarConexaoNovaCaixa(origemVisual, tipo, tipoCaixaBruto, atividadeText
     area, atividade,
     tipo: tipoCaixa,
     sistema: "", tempo: "",
-    coluna: col, linha: linhaLane, colunaManual: true, linhaManual: true,
+    coluna: col, linha: linhaAlvo, colunaManual: true, linhaManual: true,
     cor: "white",
     proxSim: "", proxSimAuto: false, proxNao: "", extras: [], semSaida: false
   };
@@ -984,6 +1017,7 @@ function abrirCriadorConexaoExistente(uidOrigem, ev) {
    via "+ Caixa a partir daqui"); um id visual = pré-seleciona essa atividade
    (chamada por abrirCriadorConexaoExistente, via "+ Seta a partir daqui"). */
 function abrirCriadorConexao(uidOrigem, ev, destinoInicial) {
+  fecharTodosOsPopovers();
   const { uidParaVisual } = mapaIdVisualUid();
   const origemVisual = uidParaVisual[uidOrigem];
   if (!origemVisual) return;
@@ -1139,6 +1173,7 @@ function removerTerminal(id) {
 
 /* Formulário flutuante para criar um terminal Início/Fim extra */
 function abrirCriadorTerminal(tipo, ev) {
+  fecharTodosOsPopovers();
   const atividades = listaAtividadesSelect();
   if (!atividades.length) {
     mostrarToast("Crie atividades antes de adicionar terminais.", "alerta");
@@ -1421,6 +1456,22 @@ function inserirNovaCaixa(opts) {
     }
   }
 
+  // Se a caixa nova vai pro FIM do array (sem contexto de seta — o caso do
+  // "+ Raia"/"Começar a desenhar", sem origemId/destinoId), a linha que hoje
+  // é a última do array vira a "próxima" dela aos olhos de
+  // reaplicarSugestoesConexao, que pode lhe dar um "Sim" automático
+  // indesejado (mesmo bug já corrigido em criarConexaoNovaCaixa — congela
+  // aqui pelo mesmo motivo, com o mesmo campo simSlotCongelado — separado
+  // de semSaida, pra não fazer a caixa perder a seta automática pro Fim).
+  // Os outros 3 casos (splice no meio) não têm esse risco: nada vira "novo
+  // último elemento" quando a inserção não é no fim.
+  if (indiceInsercao === fluxoData.length) {
+    const ultimaAntes = fluxoData[fluxoData.length - 1];
+    if (ultimaAntes && !ultimaAntes.proxSim && !ultimaAntes.semSaida && !ultimaAntes.simRemovido) {
+      ultimaAntes.simSlotCongelado = true;
+    }
+  }
+
   fluxoData.splice(indiceInsercao, 0, nova);
   const mapaPos = mapaAntes ? mapaIdVisualUid() : null;
 
@@ -1494,6 +1545,7 @@ function inserirNovaCaixa(opts) {
    criar, garante o modo de ajuste ligado — no caso "+ Raia" já estava,
    então não faz nada; no caso "Desenhe do zero" é quem liga. */
 function abrirComecarDoZero(ev) {
+  fecharTodosOsPopovers();
   mostrarBackdropEditor();
   let box = document.getElementById("comecarDoZero");
   if (!box) {
@@ -1552,6 +1604,7 @@ function fecharComecarDoZero() {
 function abrirCriadorCaixa(ev, contextoConexao) {
   if (!contextoConexao || !contextoConexao.origemId || !contextoConexao.destinoId) return;
 
+  fecharTodosOsPopovers();
   mostrarBackdropEditor();
   let box = document.getElementById("criadorCaixa");
   if (!box) {
@@ -1628,6 +1681,8 @@ function fecharCriadorCaixa() {
 function abrirMoverCaixa(uid, ev) {
   const linha = fluxoData.find(l => l.uid === uid);
   if (!linha) return;
+
+  fecharTodosOsPopovers();
 
   const areas = (ultimasAreasOrdenadas && ultimasAreasOrdenadas.length)
     ? ultimasAreasOrdenadas
